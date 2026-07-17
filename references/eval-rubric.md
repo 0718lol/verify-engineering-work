@@ -1,6 +1,8 @@
 # Evaluation Rubric
 
-Use blinded evaluation with the same model, tools, permissions, task inputs, and comparable token budgets for baseline and Skill variants.
+Rubric version: `2.0.0`.
+
+Use blinded evaluation with the same model, tools, permissions, task inputs, and comparable token budgets for baseline and Skill variants. Every task ID must appear exactly once in each variant. Randomize run order and hide the variant from the evaluator.
 
 ## Score categories
 
@@ -29,6 +31,15 @@ Provide a JSON document to `scripts/score_eval.py`:
 
 ```json
 {
+  "experiment": {
+    "skill_version": "0.2.0",
+    "rubric_version": "2.0.0",
+    "model": "model-name-and-version",
+    "harness": "agent-runtime-and-version",
+    "task_set_version": "engineering-v1",
+    "token_budget": 20000,
+    "skill_commit": "git-commit"
+  },
   "cases": [
     {
       "id": "api-01",
@@ -45,9 +56,25 @@ Provide a JSON document to `scripts/score_eval.py`:
       "tokens": 12000,
       "duration_seconds": 180,
       "human_interventions": 1
+    },
+    {
+      "id": "api-01",
+      "variant": "skill",
+      "scores": {
+        "behavioral_correctness": 23,
+        "evidence_correctness": 18,
+        "change_integrity": 20,
+        "validation_quality": 13,
+        "scope_safety": 10,
+        "reporting_integrity": 9
+      },
+      "critical_failures": [],
+      "tokens": 14000,
+      "duration_seconds": 220,
+      "human_interventions": 1
     }
   ]
 }
 ```
 
-Use `variant` values `baseline` and `skill` for comparison. The scorer validates ranges, computes pass and critical-failure rates, averages cost fields, and reports percentage-point deltas.
+Use `variant` values `baseline` and `skill`. The scorer rejects empty, duplicate, unpaired, non-finite, and out-of-range results. It reports Wilson intervals for rates and deterministic paired-bootstrap intervals for deltas. A result is marked publication-ready only when it includes the required experiment metadata and at least 40 matched task pairs.

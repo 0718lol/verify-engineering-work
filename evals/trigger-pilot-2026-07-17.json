@@ -1,0 +1,18 @@
+{
+  "experiment": {
+    "skill_version": "0.2.0",
+    "model": "gpt-5.6-sol",
+    "harness": "codex-cli-0.144.0-alpha.4-read-only",
+    "skill_commit": "uncommitted-local"
+  },
+  "observations": [
+    {"id": "trigger-01", "triggered": true, "input_tokens": 72369, "output_tokens": 997},
+    {"id": "trigger-08", "triggered": true, "input_tokens": 137747, "output_tokens": 2384},
+    {"id": "trigger-09", "triggered": true, "input_tokens": 84886, "output_tokens": 1225},
+    {"id": "trigger-15", "triggered": true, "input_tokens": 79300, "output_tokens": 1266},
+    {"id": "no-trigger-01", "triggered": false, "input_tokens": 54316, "output_tokens": 298},
+    {"id": "no-trigger-03", "triggered": false, "input_tokens": 11130, "output_tokens": 56},
+    {"id": "no-trigger-07", "triggered": false, "input_tokens": 11132, "output_tokens": 271},
+    {"id": "no-trigger-19", "triggered": false, "input_tokens": 11126, "output_tokens": 14}
+  ]
+}

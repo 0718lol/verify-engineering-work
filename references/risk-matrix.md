@@ -1,6 +1,6 @@
-# Engineering Risk Matrix v1
+# Engineering Risk Matrix v1.1
 
-Score risk before editing and revise the score when discovery changes scope. Count each distinct factor once.
+This is a routing heuristic, not an objective safety score. Score risk before editing, revise it when discovery changes scope, and count each distinct factor once. Raise the classification when interacting risks make the sum understate blast radius or recovery difficulty.
 
 ## Add 3 points
 
@@ -32,7 +32,9 @@ Score risk before editing and revise the score when discovery changes scope. Cou
 - `2-4`: Medium risk.
 - `5+`: High risk.
 
-Always classify as high risk when the next action would directly mutate production, perform an irreversible external operation, expose secrets, or weaken a security boundary, regardless of total score.
+Always classify as high risk when the next action would directly mutate production, perform an irreversible external operation, change authentication or authorization behavior, rotate or expose secrets, modify cryptography or privacy controls, or weaken another security boundary, regardless of total score.
+
+High-risk state changes require explicit user authorization for the exact target plus a viable rollback or recovery path. Without both, limit work to read-only investigation, a patch that is not applied externally, or an execution plan.
 
 Read-only investigation does not inherit the risk of a future mutation. Score the action currently authorized, then rescore before implementation or deployment.
 

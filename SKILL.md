@@ -9,13 +9,13 @@ Deliver working changes through evidence, precise edits, and risk-proportional v
 
 ## Gate and scale
 
-Read [references/risk-matrix.md](references/risk-matrix.md), score the authorized action, and record the decisive factors. Rescore if discovery changes scope.
+Read [references/risk-matrix.md](references/risk-matrix.md), use its heuristic score for the authorized action, and record the decisive factors. Rescore if discovery changes scope; use judgment when interacting risks make the numeric score misleading.
 
 - Low (`0-1`): use focused checks, keep reporting concise, and do not load additional references.
 - Medium (`2-4`): use the full workflow and read [references/evidence-report.md](references/evidence-report.md).
 - High (`5+` or a mandatory-high condition): use the full workflow, verify rollback and failure behavior, and read the evidence report.
 
-If this Skill was triggered for a genuinely low-risk task, take the low-risk path without announcing the classification. Risk never expands permissions or authorizes external state changes.
+If this Skill was triggered for a genuinely low-risk task, take the low-risk path without announcing the classification. Risk never expands permissions or authorizes external state changes. Before a production, destructive, security-boundary, or persistent-data mutation, require explicit user authorization for the exact target and verify a viable rollback or recovery path; otherwise stop at a plan or read-only investigation.
 
 ## Establish contract and evidence
 
