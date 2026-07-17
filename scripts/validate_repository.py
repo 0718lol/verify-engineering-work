@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Validate Skill metadata, evaluation assets, and local documentation links."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from score_trigger_eval import load_json, score
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SKILL_NAME = "verify-engineering-work"
+FRONTMATTER = re.compile(r"\A---\n(?P<body>.*?)\n---\n", re.DOTALL)
+LOCAL_LINK = re.compile(r"\[[^]]+\]\(([^)]+)\)")
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
+def parse_frontmatter() -> dict[str, str]:
+    content = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    match = FRONTMATTER.match(content)
+    require(match is not None, "SKILL.md must start with YAML frontmatter")
+    fields = {}
+    for line in match.group("body").splitlines():
+        key, separator, value = line.partition(":")
+        require(bool(separator), f"invalid frontmatter line: {line!r}")
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+def validate_skill_metadata() -> None:
+    fields = parse_frontmatter()
+    require(set(fields) == {"name", "description"}, "frontmatter must contain only name and description")
+    require(fields["name"] == SKILL_NAME, f"skill name must be {SKILL_NAME}")
+    require(bool(re.fullmatch(r"[a-z0-9-]{1,64}", fields["name"])), "skill name must be hyphen-case")
+    description = fields["description"]
+    require(0 < len(description) <= 1024, "description must contain 1-1024 characters")
+    require("<" not in description and ">" not in description, "description cannot contain angle brackets")
+
+    agent = (ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
+    require("allow_implicit_invocation: true" in agent, "implicit invocation must remain enabled")
+    require(f"${SKILL_NAME}" in agent, "default prompt must reference the Skill name")
+
+
+def validate_trigger_assets() -> None:
+    benchmark_path = ROOT / "references" / "trigger-benchmark-v1.json"
+    pilot_path = ROOT / "evals" / "trigger-pilot-2026-07-17.json"
+    benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
+    cases = benchmark.get("cases")
+    require(isinstance(cases, list) and len(cases) == 40, "trigger benchmark must contain 40 cases")
+    ids = [case.get("id") for case in cases]
+    require(len(set(ids)) == len(ids), "trigger benchmark IDs must be unique")
+    positives = sum(case.get("expected_trigger") is True for case in cases)
+    negatives = sum(case.get("expected_trigger") is False for case in cases)
+    require((positives, negatives) == (20, 20), "trigger benchmark must be balanced 20/20")
+    require(
+        all(isinstance(case.get("prompt"), str) and case["prompt"].strip() for case in cases),
+        "every trigger case must have a prompt",
+    )
+
+    pilot = score(benchmark, load_json(pilot_path), allow_subset=True)
+    require(pilot["quality_gate"]["cases"] == 8, "checked-in Pilot must contain 8 observations")
+    require(pilot["quality_gate"]["publication_ready"] is False, "Pilot must remain non-publishable")
+    require(
+        pilot["confusion_matrix"]
+        == {"true_positive": 4, "true_negative": 4, "false_positive": 0, "false_negative": 0},
+        "checked-in Pilot confusion matrix changed unexpectedly",
+    )
+
+
+def validate_local_links() -> None:
+    for document in (ROOT / "README.md", ROOT / "SKILL.md"):
+        content = document.read_text(encoding="utf-8")
+        for raw_target in LOCAL_LINK.findall(content):
+            target = raw_target.strip().split("#", 1)[0]
+            if not target or target.startswith(("http://", "https://")):
+                continue
+            require((document.parent / target).exists(), f"broken local link in {document.name}: {raw_target}")
+
+
+def main() -> None:
+    validate_skill_metadata()
+    validate_trigger_assets()
+    validate_local_links()
+    print("repository validation passed")
+
+
+if __name__ == "__main__":
+    main()

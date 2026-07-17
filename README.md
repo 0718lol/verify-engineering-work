@@ -1,5 +1,7 @@
 # Verify Engineering Work
 
+[![CI](https://github.com/0718lol/verify-engineering-work/actions/workflows/ci.yml/badge.svg)](https://github.com/0718lol/verify-engineering-work/actions/workflows/ci.yml)
+
 面向真实代码库的 AI 编程可靠性护栏。它不负责让模型“更聪明”，而是通过证据核验、精确编辑、风险分级验证和失败破局，降低复杂工程任务中的可避免错误。
 
 当前版本：`0.2.0`。当前状态：架构与本地评分工具已验证，真实模型效果仍需通过对照实验测量。
@@ -123,6 +125,16 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
 ## 安装
 
 将 `verify-engineering-work` 文件夹放入个人 Skills 目录并重新加载 Codex。Skill 会根据触发描述自动参与复杂任务，用户仍可通过 `$verify-engineering-work` 主动要求完整验证。
+
+## 持续集成
+
+每次 push、Pull Request 或手动运行都会触发 GitHub Actions。CI 使用 Python 3.12 和标准库检查脚本语法、评分器自测、Skill 元数据、40 条触发基准的完整性、Pilot 状态及文档本地链接：
+
+```bash
+python3 scripts/score_eval.py --self-test
+python3 scripts/score_trigger_eval.py --self-test
+python3 scripts/validate_repository.py
+```
 
 ## 许可证
 
