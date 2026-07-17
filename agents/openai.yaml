@@ -1,0 +1,7 @@
+interface:
+  display_name: "可靠工程执行"
+  short_description: "按风险自动启用的证据核验、精确编辑与生产级工程验证流程"
+  default_prompt: "使用 $verify-engineering-work 对这项复杂工程任务进行证据核验、精确修改和分级验证。"
+
+policy:
+  allow_implicit_invocation: true
