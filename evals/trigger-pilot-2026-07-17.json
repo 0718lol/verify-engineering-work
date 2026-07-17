@@ -3,7 +3,9 @@
     "skill_version": "0.2.0",
     "model": "gpt-5.6-sol",
     "harness": "codex-cli-0.144.0-alpha.4-read-only",
-    "skill_commit": "uncommitted-local"
+    "skill_commit": "uncommitted-local",
+    "detection_schema_version": "1.0.0",
+    "negative_detection_verified": true
   },
   "observations": [
     {"id": "trigger-01", "triggered": true, "input_tokens": 72369, "output_tokens": 997},

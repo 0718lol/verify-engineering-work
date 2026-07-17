@@ -4,7 +4,7 @@
 
 面向真实代码库的 AI 编程可靠性护栏。它不负责让模型“更聪明”，而是通过证据核验、精确编辑、风险分级验证和失败破局，降低复杂工程任务中的可避免错误。
 
-当前版本：`0.2.0`。当前状态：架构与本地评分工具已验证，真实模型效果仍需通过对照实验测量。
+当前版本：`0.2.1`。当前状态：架构与本地评分工具已验证，真实模型效果仍需通过对照实验测量。
 
 ## 面向谁
 
@@ -85,11 +85,13 @@ python3 scripts/score_trigger_eval.py \
 python3 scripts/score_trigger_eval.py --self-test
 ```
 
-批量运行器只使用只读沙箱，并以运行事件中是否读取 `skills/verify-engineering-work/SKILL.md` 作为触发证据。它会产生真实模型调用和 Token 消耗；正式测试前建议先用 `--ids` 或 `--limit` 做小样本 Pilot，并用 `--logs-dir` 保留原始事件供复核。
+批量运行器只使用只读沙箱，并采用多信号检测：优先识别结构化 Skill 事件，其次识别工具输入中对完整 `SKILL.md` 的读取。只有经过兼容性验证的 Codex CLI 版本，才会把“完整运行但没有正向信号”判为未触发；未知版本会记录 `triggered: null` 和 `detection_status: indeterminate`，避免把不可观测误算成未触发。`--allow-unverified-negative` 可以显式覆盖该保护，但不建议用于正式结果。
+
+运行器会产生真实模型调用和 Token 消耗；正式测试前建议先用 `--ids` 或 `--limit` 做小样本 Pilot，并用 `--logs-dir` 保留原始事件供复核。可先运行 `python3 scripts/run_trigger_eval.py --self-test` 验证事件检测器。
 
 Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确标记为覆盖不完整且不可发布。
 
-### 当前 Pilot
+### 历史 Pilot（Skill 0.2.0）
 
 2026-07-17 使用 `gpt-5.6-sol` 与 Codex CLI `0.144.0-alpha.4` 在只读沙箱运行了 8 条平衡样本：4 条应触发任务全部触发，4 条不应触发任务均未触发，未观察到误触发或漏触发。点估计准确率为 100%，但 95% Wilson 区间仍为 67.6% 至 100%，因此该结果只是运行链路和触发描述的初步证据，`publication_ready` 为 `false`。
 
@@ -103,16 +105,18 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
     "skill_version": "0.2.0",
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",
-    "skill_commit": "git-commit"
+    "skill_commit": "git-commit",
+    "detection_schema_version": "2.0.0",
+    "negative_detection_verified": false
   },
   "observations": [
-    {"id": "trigger-01", "triggered": true},
-    {"id": "no-trigger-01", "triggered": false}
+    {"id": "trigger-01", "triggered": true, "detection_method": "skill_body_read"},
+    {"id": "no-trigger-01", "triggered": null, "detection_method": "unobservable_harness"}
   ]
 }
 ```
 
-评分器要求观察文件完整覆盖基准集，并报告召回率、准确率、特异度、误触发 ID、漏触发 ID 及其 95% 区间。不得用基准标签自动生成观察结果，那只能测试评分器，不能测试真实触发行为。
+评分器要求观察文件完整覆盖基准集，并报告召回率、准确率、特异度、误触发 ID、漏触发 ID、无法判定 ID 及其 95% 区间。无法判定样本不进入准确率分母，并会阻止结果成为 `publication_ready`；运行器未验证负判定能力时，即使使用 `--allow-unverified-negative` 得到布尔结果，也不能通过发布门槛。不得用基准标签自动生成观察结果，那只能测试评分器，不能测试真实触发行为。
 
 ## 结果表述
 
@@ -133,6 +137,7 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
 ```bash
 python3 scripts/score_eval.py --self-test
 python3 scripts/score_trigger_eval.py --self-test
+python3 scripts/run_trigger_eval.py --self-test
 python3 scripts/validate_repository.py
 ```
 

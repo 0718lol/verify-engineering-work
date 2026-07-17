@@ -65,6 +65,7 @@ def validate_trigger_assets() -> None:
 
     pilot = score(benchmark, load_json(pilot_path), allow_subset=True)
     require(pilot["quality_gate"]["cases"] == 8, "checked-in Pilot must contain 8 observations")
+    require(pilot["quality_gate"]["indeterminate_cases"] == 0, "checked-in Pilot must remain scorable")
     require(pilot["quality_gate"]["publication_ready"] is False, "Pilot must remain non-publishable")
     require(
         pilot["confusion_matrix"]

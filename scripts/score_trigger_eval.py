@@ -10,7 +10,14 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_EXPERIMENT_FIELDS = ("skill_version", "model", "harness", "skill_commit")
+REQUIRED_EXPERIMENT_FIELDS = (
+    "skill_version",
+    "model",
+    "harness",
+    "skill_commit",
+    "detection_schema_version",
+    "negative_detection_verified",
+)
 
 
 class TriggerEvaluationError(ValueError):
@@ -27,7 +34,12 @@ def load_json(path: Path) -> dict:
     return value
 
 
-def indexed_rows(rows: object, field: str, boolean_field: str) -> dict[str, dict]:
+def indexed_rows(
+    rows: object,
+    field: str,
+    boolean_field: str,
+    allow_indeterminate: bool = False,
+) -> dict[str, dict]:
     if not isinstance(rows, list) or not rows:
         raise TriggerEvaluationError(f"{field} must be a non-empty array")
     indexed = {}
@@ -37,10 +49,21 @@ def indexed_rows(rows: object, field: str, boolean_field: str) -> dict[str, dict
         row_id = row.get("id")
         if not isinstance(row_id, str) or not row_id.strip():
             raise TriggerEvaluationError(f"{field}[{index}].id must be a non-empty string")
+        row_id = row_id.strip()
         if row_id in indexed:
             raise TriggerEvaluationError(f"{field}: duplicate id {row_id}")
-        if not isinstance(row.get(boolean_field), bool):
-            raise TriggerEvaluationError(f"{row_id}: {boolean_field} must be boolean")
+        if boolean_field not in row:
+            raise TriggerEvaluationError(f"{row_id}: missing {boolean_field}")
+        value = row[boolean_field]
+        if not isinstance(value, bool) and not (allow_indeterminate and value is None):
+            suffix = "boolean or null" if allow_indeterminate else "boolean"
+            raise TriggerEvaluationError(f"{row_id}: {boolean_field} must be {suffix}")
+        if field == "observations" and "detection_status" in row:
+            expected_status = {True: "triggered", False: "not_triggered", None: "indeterminate"}[value]
+            if row["detection_status"] != expected_status:
+                raise TriggerEvaluationError(
+                    f"{row_id}: detection_status must be {expected_status} when triggered is {value}"
+                )
         indexed[row_id] = row
     return indexed
 
@@ -71,7 +94,12 @@ def score(
     allow_subset: bool = False,
 ) -> dict:
     expected = indexed_rows(benchmark.get("cases"), "cases", "expected_trigger")
-    observed = indexed_rows(observations.get("observations"), "observations", "triggered")
+    observed = indexed_rows(
+        observations.get("observations"),
+        "observations",
+        "triggered",
+        allow_indeterminate=True,
+    )
     missing = sorted(set(expected) - set(observed))
     extra = sorted(set(observed) - set(expected))
     if extra or (missing and not allow_subset):
@@ -79,10 +107,16 @@ def score(
     if allow_subset:
         expected = {case_id: expected[case_id] for case_id in observed}
 
+    indeterminate_ids = sorted(
+        case_id for case_id in expected if observed[case_id]["triggered"] is None
+    )
+    scorable_expected = {
+        case_id: case for case_id, case in expected.items() if case_id not in indeterminate_ids
+    }
     true_positive = true_negative = false_positive = false_negative = 0
     false_positive_ids = []
     false_negative_ids = []
-    for case_id, case in expected.items():
+    for case_id, case in scorable_expected.items():
         wanted = case["expected_trigger"]
         actual = observed[case_id]["triggered"]
         if wanted and actual:
@@ -96,7 +130,8 @@ def score(
             false_negative += 1
             false_negative_ids.append(case_id)
 
-    count = len(expected)
+    observation_count = len(expected)
+    count = len(scorable_expected)
     benchmark_count = len(benchmark["cases"])
     experiment = observations.get("experiment")
     if experiment is not None and not isinstance(experiment, dict):
@@ -105,28 +140,39 @@ def score(
     missing_metadata = [
         field for field in REQUIRED_EXPERIMENT_FIELDS if experiment.get(field) in (None, "")
     ]
-    invalid_metadata = [
-        field
-        for field in REQUIRED_EXPERIMENT_FIELDS
-        if experiment.get(field) not in (None, "")
-        and (not isinstance(experiment[field], str) or not experiment[field].strip())
-    ]
+    invalid_metadata = []
+    for field in REQUIRED_EXPERIMENT_FIELDS:
+        value = experiment.get(field)
+        if value in (None, ""):
+            continue
+        if field == "negative_detection_verified":
+            if not isinstance(value, bool):
+                invalid_metadata.append(field)
+        elif not isinstance(value, str) or not value.strip():
+            invalid_metadata.append(field)
+    negative_detection_verified = experiment.get("negative_detection_verified") is True
     return {
         "benchmark_version": benchmark.get("version"),
         "experiment": experiment,
         "quality_gate": {
             "cases": count,
+            "observations": observation_count,
             "benchmark_cases": benchmark_count,
-            "complete_coverage": count == benchmark_count,
+            "complete_coverage": observation_count == benchmark_count,
+            "complete_scorable_coverage": count == benchmark_count,
+            "indeterminate_cases": len(indeterminate_ids),
             "minimum_cases": minimum_cases,
             "sample_size_sufficient": count >= minimum_cases,
             "missing_experiment_metadata": missing_metadata,
             "invalid_experiment_metadata": invalid_metadata,
+            "negative_detection_verified": negative_detection_verified,
             "publication_ready": (
-                count == benchmark_count
+                observation_count == benchmark_count
+                and count == benchmark_count
                 and count >= minimum_cases
                 and not missing_metadata
                 and not invalid_metadata
+                and negative_detection_verified
             ),
         },
         "confusion_matrix": {
@@ -143,6 +189,7 @@ def score(
         },
         "false_positive_ids": false_positive_ids,
         "false_negative_ids": false_negative_ids,
+        "indeterminate_ids": indeterminate_ids,
     }
 
 
@@ -176,6 +223,30 @@ def self_test() -> None:
         allow_subset=True,
     )
     assert pilot["quality_gate"]["complete_coverage"] is False
+    indeterminate = score(
+        benchmark,
+        {
+            "observations": [
+                {"id": "yes", "triggered": True},
+                {"id": "no", "triggered": None},
+            ]
+        },
+        minimum_cases=1,
+    )
+    assert indeterminate["quality_gate"]["complete_coverage"] is True
+    assert indeterminate["quality_gate"]["complete_scorable_coverage"] is False
+    assert indeterminate["quality_gate"]["publication_ready"] is False
+    assert indeterminate["indeterminate_ids"] == ["no"]
+    try:
+        score(
+            benchmark,
+            {"observations": [{"id": "yes"}, {"id": "no", "triggered": False}]},
+            minimum_cases=1,
+        )
+    except TriggerEvaluationError:
+        pass
+    else:
+        raise AssertionError("missing triggered values must be rejected")
     print("self-test passed")
 
 

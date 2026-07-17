@@ -36,5 +36,8 @@ jobs:
       - name: Test trigger evaluation scorer
         run: python scripts/score_trigger_eval.py --self-test
 
+      - name: Test trigger event detection
+        run: python scripts/run_trigger_eval.py --self-test
+
       - name: Validate repository assets
         run: python scripts/validate_repository.py
