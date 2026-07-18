@@ -18,6 +18,16 @@ REQUIRED_EXPERIMENT_FIELDS = (
     "detection_schema_version",
     "negative_detection_verified",
     "compatibility_schema_version",
+    "benchmark_sha256",
+    "compatibility_sha256",
+    "skill_body_sha256",
+    "snapshot_manifest_sha256",
+)
+USAGE_FIELDS = (
+    "input_tokens",
+    "cached_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
 )
 
 
@@ -88,6 +98,82 @@ def ratio(successes: int, count: int) -> dict:
     }
 
 
+def confusion_for(case_ids: list[str], expected: dict, observed: dict) -> dict:
+    confusion = {
+        "true_positive": 0,
+        "true_negative": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+    }
+    for case_id in case_ids:
+        wanted = expected[case_id]["expected_trigger"]
+        actual = observed[case_id]["triggered"]
+        if actual is None:
+            continue
+        key = {
+            (True, True): "true_positive",
+            (False, False): "true_negative",
+            (False, True): "false_positive",
+            (True, False): "false_negative",
+        }[(wanted, actual)]
+        confusion[key] += 1
+    return confusion
+
+
+def metrics_for(confusion: dict) -> dict:
+    tp = confusion["true_positive"]
+    tn = confusion["true_negative"]
+    fp = confusion["false_positive"]
+    fn = confusion["false_negative"]
+    return {
+        "recall": ratio(tp, tp + fn),
+        "precision": ratio(tp, tp + fp),
+        "specificity": ratio(tn, tn + fp),
+        "accuracy": ratio(tp + tn, tp + tn + fp + fn),
+    }
+
+
+def usage_summary(case_ids: list[str], observed: dict) -> dict:
+    result = {"cases": len(case_ids), "fields": {}}
+    for field in USAGE_FIELDS:
+        values = []
+        for case_id in case_ids:
+            value = observed[case_id].get(field)
+            if value is None:
+                continue
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise TriggerEvaluationError(
+                    f"{case_id}: {field} must be a finite non-negative number or null"
+                )
+            values.append(value)
+        result["fields"][field] = {
+            "total": sum(values),
+            "average": sum(values) / len(values) if values else None,
+            "reported_cases": len(values),
+        }
+    input_total = result["fields"]["input_tokens"]["total"]
+    output_total = result["fields"]["output_tokens"]["total"]
+    complete_totals = [
+        observed[case_id]["input_tokens"] + observed[case_id]["output_tokens"]
+        for case_id in case_ids
+        if isinstance(observed[case_id].get("input_tokens"), (int, float))
+        and not isinstance(observed[case_id].get("input_tokens"), bool)
+        and isinstance(observed[case_id].get("output_tokens"), (int, float))
+        and not isinstance(observed[case_id].get("output_tokens"), bool)
+    ]
+    result["total_tokens"] = input_total + output_total
+    result["total_tokens_reported_cases"] = len(complete_totals)
+    result["average_total_tokens"] = (
+        sum(complete_totals) / len(complete_totals) if complete_totals else None
+    )
+    return result
+
+
 def score(
     benchmark: dict,
     observations: dict,
@@ -114,22 +200,20 @@ def score(
     scorable_expected = {
         case_id: case for case_id, case in expected.items() if case_id not in indeterminate_ids
     }
-    true_positive = true_negative = false_positive = false_negative = 0
-    false_positive_ids = []
-    false_negative_ids = []
-    for case_id, case in scorable_expected.items():
-        wanted = case["expected_trigger"]
-        actual = observed[case_id]["triggered"]
-        if wanted and actual:
-            true_positive += 1
-        elif not wanted and not actual:
-            true_negative += 1
-        elif not wanted and actual:
-            false_positive += 1
-            false_positive_ids.append(case_id)
-        else:
-            false_negative += 1
-            false_negative_ids.append(case_id)
+    scorable_ids = list(scorable_expected)
+    confusion = confusion_for(scorable_ids, expected, observed)
+    false_positive_ids = [
+        case_id
+        for case_id in scorable_ids
+        if expected[case_id]["expected_trigger"] is False
+        and observed[case_id]["triggered"] is True
+    ]
+    false_negative_ids = [
+        case_id
+        for case_id in scorable_ids
+        if expected[case_id]["expected_trigger"] is True
+        and observed[case_id]["triggered"] is False
+    ]
 
     observation_count = len(expected)
     count = len(scorable_expected)
@@ -152,6 +236,31 @@ def score(
         elif not isinstance(value, str) or not value.strip():
             invalid_metadata.append(field)
     negative_detection_verified = experiment.get("negative_detection_verified") is True
+    categories = {}
+    for case_id in expected:
+        category = expected[case_id].get("category", "uncategorized")
+        if not isinstance(category, str) or not category.strip():
+            category = "uncategorized"
+        categories.setdefault(category, []).append(case_id)
+    metrics_by_category = {}
+    for category, case_ids in sorted(categories.items()):
+        category_confusion = confusion_for(case_ids, expected, observed)
+        category_scorable = [
+            case_id for case_id in case_ids if observed[case_id]["triggered"] is not None
+        ]
+        metrics_by_category[category] = {
+            "cases": len(case_ids),
+            "scorable_cases": len(category_scorable),
+            "indeterminate_cases": len(case_ids) - len(category_scorable),
+            "confusion_matrix": category_confusion,
+            "metrics": metrics_for(category_confusion),
+        }
+    positive_ids = [
+        case_id for case_id in expected if expected[case_id]["expected_trigger"] is True
+    ]
+    negative_ids = [
+        case_id for case_id in expected if expected[case_id]["expected_trigger"] is False
+    ]
     return {
         "benchmark_version": benchmark.get("version"),
         "experiment": experiment,
@@ -176,17 +285,13 @@ def score(
                 and negative_detection_verified
             ),
         },
-        "confusion_matrix": {
-            "true_positive": true_positive,
-            "true_negative": true_negative,
-            "false_positive": false_positive,
-            "false_negative": false_negative,
-        },
-        "metrics": {
-            "recall": ratio(true_positive, true_positive + false_negative),
-            "precision": ratio(true_positive, true_positive + false_positive),
-            "specificity": ratio(true_negative, true_negative + false_positive),
-            "accuracy": ratio(true_positive + true_negative, count),
+        "confusion_matrix": confusion,
+        "metrics": metrics_for(confusion),
+        "metrics_by_category": metrics_by_category,
+        "usage": {
+            "overall": usage_summary(list(expected), observed),
+            "expected_trigger": usage_summary(positive_ids, observed),
+            "expected_no_trigger": usage_summary(negative_ids, observed),
         },
         "false_positive_ids": false_positive_ids,
         "false_negative_ids": false_negative_ids,
@@ -198,19 +303,21 @@ def self_test() -> None:
     benchmark = {
         "version": "test",
         "cases": [
-            {"id": "yes", "expected_trigger": True},
-            {"id": "no", "expected_trigger": False},
+            {"id": "yes", "category": "boundary", "expected_trigger": True},
+            {"id": "no", "category": "boundary", "expected_trigger": False},
         ],
     }
     observations = {
         "observations": [
-            {"id": "yes", "triggered": True},
-            {"id": "no", "triggered": False},
+            {"id": "yes", "triggered": True, "input_tokens": 10, "output_tokens": 2},
+            {"id": "no", "triggered": False, "input_tokens": 4, "output_tokens": 1},
         ]
     }
     result = score(benchmark, observations, minimum_cases=2)
     assert result["metrics"]["accuracy"]["value"] == 1
     assert result["confusion_matrix"]["false_positive"] == 0
+    assert result["metrics_by_category"]["boundary"]["scorable_cases"] == 2
+    assert result["usage"]["overall"]["total_tokens"] == 17
     try:
         score(benchmark, {"observations": observations["observations"][:1]}, minimum_cases=2)
     except TriggerEvaluationError:

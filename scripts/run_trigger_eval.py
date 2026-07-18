@@ -7,7 +7,9 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,7 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_PATH = ROOT / "VERSION"
 DEFAULT_COMPATIBILITY_PATH = ROOT / "references" / "compatibility.json"
-DETECTION_SCHEMA_VERSION = "2.2.0"
+DETECTION_SCHEMA_VERSION = "2.3.0"
+SNAPSHOT_SCHEMA_VERSION = "1.0.0"
 REDACTION_PATTERNS = (
     re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -92,6 +95,117 @@ def selected_cases(cases: list[dict], ids: set[str] | None, limit: int | None) -
     return selected[:limit] if limit is not None else selected
 
 
+def ordered_cases(
+    cases: list[dict],
+    strategy: str,
+    seed: int,
+) -> list[dict]:
+    ordered = list(cases)
+    if strategy == "benchmark":
+        return ordered
+    rng = random.Random(seed)
+    if strategy == "shuffle":
+        rng.shuffle(ordered)
+        return ordered
+    positives = [case for case in ordered if case.get("expected_trigger") is True]
+    negatives = [case for case in ordered if case.get("expected_trigger") is False]
+    if len(positives) + len(negatives) != len(ordered):
+        raise ValueError("stratified order requires boolean expected_trigger labels")
+    rng.shuffle(positives)
+    rng.shuffle(negatives)
+    interleaved = []
+    for index in range(max(len(positives), len(negatives))):
+        if index < len(positives):
+            interleaved.append(positives[index])
+        if index < len(negatives):
+            interleaved.append(negatives[index])
+    return interleaved
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def stable_sha256(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def create_snapshot(
+    snapshot_dir: Path,
+    benchmark_path: Path,
+    compatibility_path: Path,
+    selected_ids: list[str],
+) -> str:
+    project_files = (
+        "VERSION",
+        "SKILL.md",
+        "agents/openai.yaml",
+        "references/risk-matrix.md",
+        "scripts/run_trigger_eval.py",
+        "scripts/score_trigger_eval.py",
+        "scripts/reclassify_trigger_eval.py",
+    )
+    manifest = {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "project_version": project_version(),
+        "benchmark": {
+            "stored_as": "inputs/benchmark.json",
+            "sha256": file_sha256(benchmark_path),
+        },
+        "compatibility": {
+            "stored_as": "inputs/compatibility.json",
+            "sha256": file_sha256(compatibility_path),
+        },
+        "selected_case_ids": selected_ids,
+        "selected_case_ids_sha256": stable_sha256(selected_ids),
+        "project_files": {
+            relative: file_sha256(ROOT / relative)
+            for relative in project_files
+            if (ROOT / relative).is_file()
+        },
+    }
+    manifest_hash = stable_sha256(manifest)
+    manifest["manifest_sha256"] = manifest_hash
+    manifest_path = snapshot_dir / "manifest.json"
+    if snapshot_dir.exists() and any(snapshot_dir.iterdir()):
+        existing = load_json(manifest_path, "snapshot manifest")
+        if existing != manifest:
+            raise ValueError("snapshot directory contains a different experiment snapshot")
+        stored_files = {
+            snapshot_dir / "inputs" / "benchmark.json": manifest["benchmark"]["sha256"],
+            snapshot_dir / "inputs" / "compatibility.json": manifest["compatibility"]["sha256"],
+            **{
+                snapshot_dir / "project" / relative: digest
+                for relative, digest in manifest["project_files"].items()
+            },
+        }
+        for stored_path, expected_digest in stored_files.items():
+            if not stored_path.is_file() or file_sha256(stored_path) != expected_digest:
+                raise ValueError(f"snapshot file is missing or modified: {stored_path}")
+        return manifest_hash
+
+    (snapshot_dir / "inputs").mkdir(parents=True, exist_ok=True)
+    (snapshot_dir / "project").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(benchmark_path, snapshot_dir / "inputs" / "benchmark.json")
+    shutil.copy2(compatibility_path, snapshot_dir / "inputs" / "compatibility.json")
+    for relative in manifest["project_files"]:
+        destination = snapshot_dir / "project" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
+    atomic_write_json(manifest_path, manifest)
+    return manifest_hash
+
+
 def event_names_skill(event: dict, skill_name: str) -> bool:
     containers = [event]
     item = event.get("item")
@@ -108,8 +222,20 @@ def event_names_skill(event: dict, skill_name: str) -> bool:
     return False
 
 
-def event_reads_skill_body(event: dict, skill_name: str) -> bool:
+def event_reads_skill_body(
+    event: dict,
+    skill_name: str,
+    skill_body_paths: tuple[Path, ...] = (),
+) -> bool:
     marker = f"{skill_name}/SKILL.md"
+    resolved_markers = tuple(
+        marker
+        for path in skill_body_paths
+        for marker in {
+            str(path).replace("\\", "/"),
+            str(path.resolve()).replace("\\", "/"),
+        }
+    )
     containers = [event]
     item = event.get("item")
     if isinstance(item, dict):
@@ -119,8 +245,12 @@ def event_reads_skill_body(event: dict, skill_name: str) -> bool:
             value = container.get(field)
             if isinstance(value, (dict, list)):
                 value = json.dumps(value, ensure_ascii=False)
-            if isinstance(value, str) and marker in value.replace("\\", "/"):
-                return True
+            if isinstance(value, str):
+                normalized = value.replace("\\", "/")
+                if marker in normalized or any(
+                    resolved in normalized for resolved in resolved_markers
+                ):
+                    return True
     return False
 
 
@@ -129,6 +259,7 @@ def parse_events(
     skill_name: str,
     negative_observable: bool,
     allow_unverified_negative: bool = False,
+    skill_body_paths: tuple[Path, ...] = (),
 ) -> dict:
     structured_event = False
     body_read = False
@@ -144,7 +275,11 @@ def parse_events(
             continue
         valid_events += 1
         structured_event = structured_event or event_names_skill(event, skill_name)
-        body_read = body_read or event_reads_skill_body(event, skill_name)
+        body_read = body_read or event_reads_skill_body(
+            event,
+            skill_name,
+            skill_body_paths,
+        )
         if event.get("type") == "turn.completed":
             turn_completed = True
             if isinstance(event.get("usage"), dict):
@@ -254,6 +389,16 @@ def usage_totals(
         for observation in observations
         if isinstance((value := observation.get("output_tokens")), (int, float))
     )
+    cached_input_tokens = sum(
+        value
+        for observation in observations
+        if isinstance((value := observation.get("cached_input_tokens")), (int, float))
+    )
+    reasoning_output_tokens = sum(
+        value
+        for observation in observations
+        if isinstance((value := observation.get("reasoning_output_tokens")), (int, float))
+    )
     estimated_cost = None
     if input_usd_per_million is not None and output_usd_per_million is not None:
         estimated_cost = (
@@ -262,7 +407,9 @@ def usage_totals(
         ) / 1_000_000
     return {
         "input_tokens": input_tokens,
+        "cached_input_tokens": cached_input_tokens,
         "output_tokens": output_tokens,
+        "reasoning_output_tokens": reasoning_output_tokens,
         "total_tokens": input_tokens + output_tokens,
         "estimated_cost_usd": estimated_cost,
     }
@@ -464,6 +611,14 @@ def main() -> int:
     parser.add_argument("--model", default="gpt-5.6-sol")
     parser.add_argument("--ids", help="Comma-separated benchmark IDs")
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--order",
+        choices=("benchmark", "shuffle", "stratified"),
+        default="benchmark",
+        help="Reproducible case ordering strategy",
+    )
+    parser.add_argument("--seed", type=int, default=20260718)
+    parser.add_argument("--snapshot-dir", type=Path)
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--retries", type=int, default=0)
     parser.add_argument("--retry-delay-seconds", type=float, default=2.0)
@@ -500,6 +655,7 @@ def main() -> int:
 
     ids = {item.strip() for item in args.ids.split(",") if item.strip()} if args.ids else None
     cases = selected_cases(load_cases(args.benchmark), ids, args.limit)
+    cases = ordered_cases(cases, args.order, args.seed)
     if not cases:
         raise ValueError("no benchmark cases selected")
     selected_ids = [case["id"] for case in cases]
@@ -520,7 +676,26 @@ def main() -> int:
         "detection_schema_version": DETECTION_SCHEMA_VERSION,
         "negative_detection_verified": negative_observable,
         "compatibility_schema_version": compatibility.get("schema_version"),
+        "benchmark_sha256": file_sha256(args.benchmark),
+        "compatibility_sha256": file_sha256(args.compatibility),
+        "case_order": args.order,
+        "order_seed": args.seed,
     }
+    installed_skill_body = (
+        args.codex_home / "skills" / args.skill_name / "SKILL.md"
+    )
+    skill_body_paths = (
+        (installed_skill_body.resolve(),) if installed_skill_body.is_file() else ()
+    )
+    if skill_body_paths:
+        experiment["skill_body_sha256"] = file_sha256(skill_body_paths[0])
+    if args.snapshot_dir:
+        experiment["snapshot_manifest_sha256"] = create_snapshot(
+            args.snapshot_dir,
+            args.benchmark,
+            args.compatibility,
+            selected_ids,
+        )
 
     if args.output.exists():
         if args.resume:
@@ -595,6 +770,7 @@ def main() -> int:
             args.skill_name,
             negative_observable,
             allow_unverified_negative=args.allow_unverified_negative,
+            skill_body_paths=skill_body_paths,
         )
         observations.append(
             {
@@ -609,7 +785,11 @@ def main() -> int:
                 "raw_logs": log_metadata["raw"],
                 "log_sha256": log_metadata["files"],
                 "input_tokens": detection["usage"].get("input_tokens"),
+                "cached_input_tokens": detection["usage"].get("cached_input_tokens"),
                 "output_tokens": detection["usage"].get("output_tokens"),
+                "reasoning_output_tokens": detection["usage"].get(
+                    "reasoning_output_tokens"
+                ),
             }
         )
         payload["run_state"] = run_state(

@@ -12,6 +12,7 @@ from pathlib import Path
 from run_trigger_eval import (
     DETECTION_SCHEMA_VERSION,
     atomic_write_json,
+    file_sha256,
     load_json,
     parse_events,
 )
@@ -28,7 +29,12 @@ def expected_stdout_hash(observation: dict, attempt: int) -> str | None:
     return None
 
 
-def reclassify(payload: dict, logs_dir: Path, skill_name: str) -> tuple[dict, int]:
+def reclassify(
+    payload: dict,
+    logs_dir: Path,
+    skill_name: str,
+    skill_body_paths: tuple[Path, ...] = (),
+) -> tuple[dict, int]:
     experiment = payload.get("experiment")
     observations = payload.get("observations")
     if not isinstance(experiment, dict):
@@ -56,6 +62,7 @@ def reclassify(payload: dict, logs_dir: Path, skill_name: str) -> tuple[dict, in
             stdout,
             skill_name,
             negative_observable=negative_observable,
+            skill_body_paths=skill_body_paths,
         )
         previous = {
             "triggered": observation.get("triggered"),
@@ -72,7 +79,11 @@ def reclassify(payload: dict, logs_dir: Path, skill_name: str) -> tuple[dict, in
         updated["turn_completed"] = detection["turn_completed"]
         updated["valid_events"] = detection["valid_events"]
         updated["input_tokens"] = detection["usage"].get("input_tokens")
+        updated["cached_input_tokens"] = detection["usage"].get("cached_input_tokens")
         updated["output_tokens"] = detection["usage"].get("output_tokens")
+        updated["reasoning_output_tokens"] = detection["usage"].get(
+            "reasoning_output_tokens"
+        )
 
         expected_hash = expected_stdout_hash(observation, attempt)
         if expected_hash is not None and observation.get("log_redactions") == 0:
@@ -93,6 +104,11 @@ def reclassify(payload: dict, logs_dir: Path, skill_name: str) -> tuple[dict, in
     if previous_schema != DETECTION_SCHEMA_VERSION:
         updated_experiment["reclassified_from_detection_schema_version"] = previous_schema
     updated_experiment["detection_schema_version"] = DETECTION_SCHEMA_VERSION
+    if skill_body_paths:
+        updated_experiment["reclassification_skill_bodies"] = [
+            {"sha256": file_sha256(path.resolve())}
+            for path in skill_body_paths
+        ]
     result = dict(payload)
     result["experiment"] = updated_experiment
     result["observations"] = updated_observations
@@ -105,6 +121,13 @@ def main() -> int:
     parser.add_argument("logs_dir", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--skill-name", default="verify-engineering-work")
+    parser.add_argument(
+        "--skill-body-path",
+        type=Path,
+        action="append",
+        default=[],
+        help="Exact Skill body path visible in retained events; repeat when needed",
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -112,10 +135,15 @@ def main() -> int:
         raise ValueError("output already exists; use --overwrite to replace it")
     if args.output.resolve() == args.observations.resolve():
         raise ValueError("write reclassified observations to a separate output file")
+    skill_body_paths = tuple(args.skill_body_path)
+    for path in skill_body_paths:
+        if not path.is_file():
+            raise ValueError(f"--skill-body-path is not a file: {path}")
     payload, changed = reclassify(
         load_json(args.observations, "observations"),
         args.logs_dir,
         args.skill_name,
+        skill_body_paths,
     )
     atomic_write_json(args.output, payload)
     print(

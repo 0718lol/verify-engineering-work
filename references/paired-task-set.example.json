@@ -1,0 +1,14 @@
+{
+  "version": "engineering-v1",
+  "description": "Replace the example paths with two clean, independent Git workspaces prepared from the same task fixture.",
+  "tasks": [
+    {
+      "id": "api-01",
+      "prompt": "Repair the failing API integration, preserve backward compatibility, and verify the changed behavior.",
+      "workspaces": {
+        "baseline": "/absolute/path/to/api-01-baseline",
+        "skill": "/absolute/path/to/api-01-skill"
+      }
+    }
+  ]
+}

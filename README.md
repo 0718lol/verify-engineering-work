@@ -4,7 +4,7 @@
 
 面向真实代码库的 AI 编程可靠性护栏。它不负责让模型“更聪明”，而是通过证据核验、精确编辑、风险分级验证和失败破局，降低复杂工程任务中的可避免错误。
 
-当前版本：`0.2.3`。当前状态：架构、本地评分工具和可恢复触发评测链路已验证，真实模型效果仍需通过对照实验测量。
+当前版本：`0.3.0`。当前状态：边界触发基准、可恢复触发评测、实验快照和盲化配对运行链路已验证；真实工程质量提升仍需完成足量对照实验后才能声明。
 
 ## 面向谁
 
@@ -58,10 +58,29 @@ $verify-engineering-work 修复这个跨模块鉴权问题，并验证兼容性�
 
 使用同一模型、工具权限、任务输入和相近 Token 预算，为每个任务分别运行 `baseline` 与 `skill`。建议至少准备 40 个任务对，随机运行顺序，并由不知道分组的评审者按 [references/eval-rubric.md](references/eval-rubric.md) 打分。
 
+`scripts/run_paired_eval.py` 会检查两套 Codex Home 和每个变体的独立 Git 工作区，固定种子随机运行，以盲编号保存代理回答和 diff，并把分组映射写到单独文件。基线 Codex Home 不得安装本 Skill，Skill Codex Home 必须包含 `skills/verify-engineering-work/SKILL.md`。任务集格式见 [references/paired-task-set.example.json](references/paired-task-set.example.json)。
+
 ```bash
-python3 scripts/score_eval.py results.json
+python3 scripts/run_paired_eval.py \
+  paired-tasks.json paired-runs.json \
+  --baseline-codex-home /path/to/baseline-codex-home \
+  --skill-codex-home /path/to/skill-codex-home \
+  --artifacts-dir paired-artifacts \
+  --review-output blind-review.json \
+  --mapping-output blind-mapping.json \
+  --skill-commit "$(git rev-parse HEAD)" \
+  --seed 20260718 \
+  --max-total-tokens 2000000 \
+  --allow-workspace-write
+
+# 盲评者参考 references/blind-scores.example.json 填写评分后：
+python3 scripts/build_scored_eval.py \
+  paired-runs.json blind-mapping.json blind-scores.json scored-results.json
+python3 scripts/score_eval.py scored-results.json
 python3 scripts/score_eval.py --self-test
 ```
+
+运行器要求显式传入 `--allow-workspace-write`，因为任务会修改工作区。默认拒绝脏工作区和重复使用同一目录；中断后用完全相同参数追加 `--resume`。原始事件与 diff 默认脱敏，但用于正式评审前仍应检查任务夹具中是否包含秘密信息。`--token-budget` 是每个任务的实验设计元数据，`--max-total-tokens` 是在下一次运行前检查的全局软上限。
 
 评分器会：
 
@@ -73,32 +92,40 @@ python3 scripts/score_eval.py --self-test
 
 ## 隐式触发评测
 
-[references/trigger-benchmark-v1.json](references/trigger-benchmark-v1.json) 提供 40 条中英文平衡样本，其中 20 条应触发、20 条不应触发。在目标代理中逐条创建全新会话，记录是否实际加载本 Skill，再运行：
+[references/trigger-benchmark-v1.json](references/trigger-benchmark-v1.json) 提供 40 条基础中英文平衡样本。[references/trigger-benchmark-v2.json](references/trigger-benchmark-v2.json) 进一步提供 40 条正负交替的边界样本：负样本会故意包含“生产、安全、迁移”等高风险词，但只要求解释、整理或只读审阅；正样本则减少直白关键词，测试隐含工程风险能否触发。正式触发结论应优先使用 v2。
 
 ```bash
 python3 scripts/run_trigger_eval.py \
-  references/trigger-benchmark-v1.json trigger-observations.json \
+  references/trigger-benchmark-v2.json trigger-observations.json \
   --codex-home "$CODEX_HOME" \
   --workspace /path/to/read-only-fixture \
+  --order stratified \
+  --seed 20260718 \
+  --snapshot-dir trigger-snapshot \
   --limit 8 \
   --max-total-tokens 500000 \
   --retries 1 \
   --logs-dir trigger-logs
 
 python3 scripts/score_trigger_eval.py \
-  references/trigger-benchmark-v1.json trigger-observations.json
+  references/trigger-benchmark-v2.json trigger-observations.json
 python3 scripts/score_trigger_eval.py --self-test
 ```
 
 批量运行器只使用只读沙箱，并采用多信号检测：优先识别结构化 Skill 事件，其次识别工具输入中对完整 `SKILL.md` 的读取。只有在 [references/compatibility.json](references/compatibility.json) 中具有正反事件样本的 Codex CLI 版本，才会把“完整运行但没有正向信号”判为未触发；未知版本会记录 `triggered: null` 和 `detection_status: indeterminate`，避免把不可观测误算成未触发。`--allow-unverified-negative` 可以显式覆盖该保护，但不建议用于正式结果。
 
-运行器会在每个样本完成后原子写入检查点。中断后使用相同的选择参数和实验元数据，并追加 `--resume` 即可跳过已完成样本：
+运行器会把基准、兼容矩阵、选中 ID、关键 Skill 文件和评测脚本写入 `--snapshot-dir`，并在结果中记录 SHA-256。非空快照目录只有在内容与本轮完全一致、且内部文件哈希全部通过时才能复用，从而避免后续版本覆盖实验来源。`--order benchmark|shuffle|stratified` 与 `--seed` 控制可复现顺序；平衡数据建议使用 `stratified`。完整结果只有同时携带基准、兼容矩阵、实际 Skill 文件和快照 manifest 的哈希，才可能成为 `publication_ready`。
+
+每个样本完成后会原子写入检查点。中断后使用相同的选择、顺序、快照和实验元数据，并追加 `--resume` 即可跳过已完成样本：
 
 ```bash
 python3 scripts/run_trigger_eval.py \
   references/trigger-benchmark-v1.json trigger-observations.json \
   --codex-home "$CODEX_HOME" \
   --workspace /path/to/read-only-fixture \
+  --order stratified \
+  --seed 20260718 \
+  --snapshot-dir trigger-snapshot \
   --limit 8 \
   --max-total-tokens 500000 \
   --retries 1 \
@@ -116,8 +143,11 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
 
 ```bash
 python3 scripts/reclassify_trigger_eval.py \
-  trigger-observations.json trigger-logs trigger-observations-reclassified.json
+  trigger-observations.json trigger-logs trigger-observations-reclassified.json \
+  --skill-body-path /path/recorded/in/events/SKILL.md
 ```
+
+Schema 2.3 会同时识别 Skill 安装入口及其符号链接解析后的精确路径。旧日志使用名称不含 Skill 名的冻结目录时，应通过 `--skill-body-path` 指定日志中实际读取的文件；工具会记录该文件的 SHA-256，不能用宽泛的任意 `SKILL.md` 匹配代替来源证明。
 
 ### 历史 Pilot（Skill 0.2.0）
 
@@ -140,7 +170,7 @@ python3 scripts/reclassify_trigger_eval.py \
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",
     "skill_commit": "git-commit",
-    "detection_schema_version": "2.2.0",
+    "detection_schema_version": "2.3.0",
     "negative_detection_verified": false,
     "compatibility_schema_version": "1.0.0"
   },
@@ -151,7 +181,7 @@ python3 scripts/reclassify_trigger_eval.py \
 }
 ```
 
-评分器要求观察文件完整覆盖基准集，并报告召回率、准确率、特异度、误触发 ID、漏触发 ID、无法判定 ID 及其 95% 区间。无法判定样本不进入准确率分母，并会阻止结果成为 `publication_ready`；运行器未验证负判定能力时，即使使用 `--allow-unverified-negative` 得到布尔结果，也不能通过发布门槛。不得用基准标签自动生成观察结果，那只能测试评分器，不能测试真实触发行为。
+评分器要求观察文件完整覆盖基准集，并报告召回率、准确率、特异度、误触发 ID、漏触发 ID、无法判定 ID 及其 95% 区间。v0.3 还会按 `category` 输出混淆矩阵，并分别汇总应触发、不应触发和全体样本的输入、缓存输入、输出及推理输出 Token。无法判定样本不进入准确率分母，并会阻止结果成为 `publication_ready`；运行器未验证负判定能力时，即使使用 `--allow-unverified-negative` 得到布尔结果，也不能通过发布门槛。不得用基准标签自动生成观察结果，那只能测试评分器，不能测试真实触发行为。
 
 ## 结果表述
 

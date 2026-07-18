@@ -1,0 +1,17 @@
+{
+  "scores": [
+    {
+      "blind_id": "run-replace-with-generated-id",
+      "scores": {
+        "behavioral_correctness": 20,
+        "evidence_correctness": 15,
+        "change_integrity": 18,
+        "validation_quality": 12,
+        "scope_safety": 8,
+        "reporting_integrity": 8
+      },
+      "critical_failures": [],
+      "human_interventions": 0
+    }
+  ]
+}

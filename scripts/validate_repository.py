@@ -57,6 +57,7 @@ def validate_skill_metadata() -> None:
 
 def validate_trigger_assets() -> None:
     benchmark_path = ROOT / "references" / "trigger-benchmark-v1.json"
+    boundary_benchmark_path = ROOT / "references" / "trigger-benchmark-v2.json"
     pilot_path = ROOT / "evals" / "trigger-pilot-2026-07-17.json"
     expanded_pilot_path = ROOT / "evals" / "trigger-pilot-2026-07-18-reclassified.json"
     benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
@@ -70,6 +71,47 @@ def validate_trigger_assets() -> None:
     require(
         all(isinstance(case.get("prompt"), str) and case["prompt"].strip() for case in cases),
         "every trigger case must have a prompt",
+    )
+    boundary_benchmark = json.loads(
+        boundary_benchmark_path.read_text(encoding="utf-8")
+    )
+    boundary_cases = boundary_benchmark.get("cases")
+    require(
+        boundary_benchmark.get("version") == "2.0.0",
+        "boundary trigger benchmark version must be 2.0.0",
+    )
+    require(
+        isinstance(boundary_cases, list) and len(boundary_cases) == 40,
+        "boundary trigger benchmark must contain 40 cases",
+    )
+    boundary_ids = [case.get("id") for case in boundary_cases]
+    require(
+        len(set(boundary_ids)) == len(boundary_ids),
+        "boundary trigger benchmark IDs must be unique",
+    )
+    require(
+        sum(case.get("expected_trigger") is True for case in boundary_cases) == 20
+        and sum(case.get("expected_trigger") is False for case in boundary_cases) == 20,
+        "boundary trigger benchmark must be balanced 20/20",
+    )
+    require(
+        all(
+            boundary_cases[index].get("expected_trigger")
+            != boundary_cases[index + 1].get("expected_trigger")
+            for index in range(len(boundary_cases) - 1)
+        ),
+        "boundary trigger benchmark must interleave positive and negative cases",
+    )
+    require(
+        all(
+            case.get("difficulty") == "boundary"
+            and isinstance(case.get("category"), str)
+            and case["category"].strip()
+            and isinstance(case.get("prompt"), str)
+            and case["prompt"].strip()
+            for case in boundary_cases
+        ),
+        "every boundary trigger case must contain difficulty, category, and prompt",
     )
 
     pilot = score(benchmark, load_json(pilot_path), allow_subset=True)

@@ -53,6 +53,26 @@ class TriggerDetectionTests(unittest.TestCase):
         self.assertIs(result["triggered"], True)
         self.assertEqual(result["detection_method"], "skill_body_read")
 
+    def test_resolved_snapshot_path_can_be_supplied(self) -> None:
+        snapshot = Path("/tmp/frozen-project-v1/SKILL.md")
+        event = json.dumps(
+            {
+                "type": "item.started",
+                "item": {
+                    "type": "command_execution",
+                    "command": f"sed -n '1,200p' {snapshot}",
+                },
+            }
+        )
+        result = runner.parse_events(
+            event,
+            "verify-engineering-work",
+            True,
+            skill_body_paths=(snapshot,),
+        )
+        self.assertIs(result["triggered"], True)
+        self.assertEqual(result["detection_method"], "skill_body_read")
+
     def test_verified_cli_detects_negative(self) -> None:
         result = runner.parse_events(self.not_triggered, "verify-engineering-work", True)
         self.assertIs(result["triggered"], False)
