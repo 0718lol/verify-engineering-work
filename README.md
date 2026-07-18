@@ -4,7 +4,7 @@
 
 面向真实代码库的 AI 编程可靠性护栏。它不负责让模型“更聪明”，而是通过证据核验、精确编辑、风险分级验证和失败破局，降低复杂工程任务中的可避免错误。
 
-当前版本：`0.2.1`。当前状态：架构与本地评分工具已验证，真实模型效果仍需通过对照实验测量。
+当前版本：`0.2.2`。当前状态：架构、本地评分工具和可恢复触发评测链路已验证，真实模型效果仍需通过对照实验测量。
 
 ## 面向谁
 
@@ -78,16 +78,37 @@ python3 scripts/score_eval.py --self-test
 ```bash
 python3 scripts/run_trigger_eval.py \
   references/trigger-benchmark-v1.json trigger-observations.json \
-  --codex-home "$CODEX_HOME" --workspace /path/to/read-only-fixture
+  --codex-home "$CODEX_HOME" \
+  --workspace /path/to/read-only-fixture \
+  --limit 8 \
+  --max-total-tokens 500000 \
+  --retries 1 \
+  --logs-dir trigger-logs
 
 python3 scripts/score_trigger_eval.py \
   references/trigger-benchmark-v1.json trigger-observations.json
 python3 scripts/score_trigger_eval.py --self-test
 ```
 
-批量运行器只使用只读沙箱，并采用多信号检测：优先识别结构化 Skill 事件，其次识别工具输入中对完整 `SKILL.md` 的读取。只有经过兼容性验证的 Codex CLI 版本，才会把“完整运行但没有正向信号”判为未触发；未知版本会记录 `triggered: null` 和 `detection_status: indeterminate`，避免把不可观测误算成未触发。`--allow-unverified-negative` 可以显式覆盖该保护，但不建议用于正式结果。
+批量运行器只使用只读沙箱，并采用多信号检测：优先识别结构化 Skill 事件，其次识别工具输入中对完整 `SKILL.md` 的读取。只有在 [references/compatibility.json](references/compatibility.json) 中具有正反事件样本的 Codex CLI 版本，才会把“完整运行但没有正向信号”判为未触发；未知版本会记录 `triggered: null` 和 `detection_status: indeterminate`，避免把不可观测误算成未触发。`--allow-unverified-negative` 可以显式覆盖该保护，但不建议用于正式结果。
 
-运行器会产生真实模型调用和 Token 消耗；正式测试前建议先用 `--ids` 或 `--limit` 做小样本 Pilot，并用 `--logs-dir` 保留原始事件供复核。可先运行 `python3 scripts/run_trigger_eval.py --self-test` 验证事件检测器。
+运行器会在每个样本完成后原子写入检查点。中断后使用相同的选择参数和实验元数据，并追加 `--resume` 即可跳过已完成样本：
+
+```bash
+python3 scripts/run_trigger_eval.py \
+  references/trigger-benchmark-v1.json trigger-observations.json \
+  --codex-home "$CODEX_HOME" \
+  --workspace /path/to/read-only-fixture \
+  --limit 8 \
+  --max-total-tokens 500000 \
+  --retries 1 \
+  --logs-dir trigger-logs \
+  --resume
+```
+
+已有输出不会被静默覆盖；重新开始需要显式使用 `--overwrite`。`--max-input-tokens`、`--max-output-tokens` 和 `--max-total-tokens` 会在启动下一个样本前执行软上限，因此最后一个已完成样本可能使总量略微超过阈值。费用上限 `--max-cost-usd` 只有同时提供 `--input-usd-per-million` 与 `--output-usd-per-million` 才能使用，项目不会猜测模型价格。
+
+通过 `--logs-dir` 保存的事件日志默认对常见 API Key、访问令牌、密码和 Bearer 凭据脱敏，并在观察值中记录原始内容的 SHA-256，便于完整性核对。仅在隔离环境确有需要时使用 `--unsafe-raw-logs`。正式测试前建议先用 `--ids` 或 `--limit` 做小样本 Pilot，并运行 `python3 scripts/run_trigger_eval.py --self-test` 验证事件检测器。
 
 Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确标记为覆盖不完整且不可发布。
 
@@ -102,12 +123,13 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
 ```json
 {
   "experiment": {
-    "skill_version": "0.2.0",
+    "skill_version": "0.2.2",
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",
     "skill_commit": "git-commit",
-    "detection_schema_version": "2.0.0",
-    "negative_detection_verified": false
+    "detection_schema_version": "2.1.0",
+    "negative_detection_verified": false,
+    "compatibility_schema_version": "1.0.0"
   },
   "observations": [
     {"id": "trigger-01", "triggered": true, "detection_method": "skill_body_read"},
@@ -128,7 +150,7 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
 
 ## 安装
 
-将 `verify-engineering-work` 文件夹放入个人 Skills 目录并重新加载 Codex。Skill 会根据触发描述自动参与复杂任务，用户仍可通过 `$verify-engineering-work` 主动要求完整验证。
+将 `verify-engineering-work` 文件夹放入个人 Skills 目录并重新加载 Codex。Skill 会根据触发描述自动参与复杂任务，用户仍可通过 `$verify-engineering-work` 主动要求完整验证。仓库根目录的 [VERSION](VERSION) 是项目版本的唯一来源，运行器和仓库校验会自动读取它。
 
 ## 持续集成
 
@@ -138,6 +160,7 @@ Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确�
 python3 scripts/score_eval.py --self-test
 python3 scripts/score_trigger_eval.py --self-test
 python3 scripts/run_trigger_eval.py --self-test
+python3 -m unittest discover -s tests -p "test_*.py" -v
 python3 scripts/validate_repository.py
 ```
 

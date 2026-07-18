@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "codex_cli_versions": {
+    "codex-cli 0.144.0-alpha.4": {
+      "negative_detection_observable": true,
+      "verified_on": "2026-07-17",
+      "triggered_fixture": "tests/fixtures/codex-cli-0.144.0-alpha.4/triggered.jsonl",
+      "not_triggered_fixture": "tests/fixtures/codex-cli-0.144.0-alpha.4/not-triggered.jsonl"
+    }
+  }
+}

@@ -7,6 +7,12 @@ import json
 import re
 from pathlib import Path
 
+from run_trigger_eval import (
+    load_compatibility,
+    negative_detection_observable,
+    parse_events,
+    project_version,
+)
 from score_trigger_eval import load_json, score
 
 
@@ -29,7 +35,9 @@ def parse_frontmatter() -> dict[str, str]:
     for line in match.group("body").splitlines():
         key, separator, value = line.partition(":")
         require(bool(separator), f"invalid frontmatter line: {line!r}")
-        fields[key.strip()] = value.strip()
+        key = key.strip()
+        require(key not in fields, f"duplicate frontmatter field: {key}")
+        fields[key] = value.strip()
     return fields
 
 
@@ -74,6 +82,45 @@ def validate_trigger_assets() -> None:
     )
 
 
+def validate_version_and_compatibility() -> None:
+    version = project_version()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    require(f"当前版本：`{version}`" in readme, "README version must match VERSION")
+
+    compatibility = load_compatibility()
+    require(
+        compatibility.get("schema_version") == "1.0.0",
+        "compatibility schema_version must be 1.0.0",
+    )
+    versions = compatibility["codex_cli_versions"]
+    require(bool(versions), "compatibility matrix must contain at least one CLI version")
+    for cli_version, entry in versions.items():
+        require(isinstance(entry, dict), f"{cli_version}: compatibility entry must be an object")
+        require(
+            negative_detection_observable(cli_version, compatibility),
+            f"{cli_version}: checked-in fixture must verify negative detection",
+        )
+        triggered_path = ROOT / str(entry.get("triggered_fixture", ""))
+        not_triggered_path = ROOT / str(entry.get("not_triggered_fixture", ""))
+        require(triggered_path.is_file(), f"{cli_version}: triggered fixture is missing")
+        require(not_triggered_path.is_file(), f"{cli_version}: not-triggered fixture is missing")
+        triggered = parse_events(
+            triggered_path.read_text(encoding="utf-8"),
+            SKILL_NAME,
+            negative_observable=True,
+        )
+        not_triggered = parse_events(
+            not_triggered_path.read_text(encoding="utf-8"),
+            SKILL_NAME,
+            negative_observable=True,
+        )
+        require(triggered["triggered"] is True, f"{cli_version}: triggered fixture was not detected")
+        require(
+            not_triggered["triggered"] is False,
+            f"{cli_version}: not-triggered fixture was not detected",
+        )
+
+
 def validate_local_links() -> None:
     for document in (ROOT / "README.md", ROOT / "SKILL.md"):
         content = document.read_text(encoding="utf-8")
@@ -87,6 +134,7 @@ def validate_local_links() -> None:
 def main() -> None:
     validate_skill_metadata()
     validate_trigger_assets()
+    validate_version_and_compatibility()
     validate_local_links()
     print("repository validation passed")
 

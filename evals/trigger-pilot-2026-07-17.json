@@ -5,7 +5,8 @@
     "harness": "codex-cli-0.144.0-alpha.4-read-only",
     "skill_commit": "uncommitted-local",
     "detection_schema_version": "1.0.0",
-    "negative_detection_verified": true
+    "negative_detection_verified": true,
+    "compatibility_schema_version": "1.0.0"
   },
   "observations": [
     {"id": "trigger-01", "triggered": true, "input_tokens": 72369, "output_tokens": 997},

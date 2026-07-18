@@ -17,6 +17,7 @@ REQUIRED_EXPERIMENT_FIELDS = (
     "skill_commit",
     "detection_schema_version",
     "negative_detection_verified",
+    "compatibility_schema_version",
 )
 
 

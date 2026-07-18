@@ -254,7 +254,7 @@ def self_test() -> None:
     assert result["comparison"]["production_compliance_percentage_points"]["delta"] == 100
 
     invalid_metadata = {
-        "skill_version": "0.2.0",
+        "skill_version": "test-version",
         "rubric_version": "2.0.0",
         "model": "test-model",
         "harness": "test-harness",

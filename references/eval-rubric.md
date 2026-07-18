@@ -32,7 +32,7 @@ Provide a JSON document to `scripts/score_eval.py`:
 ```json
 {
   "experiment": {
-    "skill_version": "0.2.0",
+    "skill_version": "0.2.2",
     "rubric_version": "2.0.0",
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",
