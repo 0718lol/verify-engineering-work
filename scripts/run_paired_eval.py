@@ -24,8 +24,8 @@ from run_trigger_eval import (
 )
 
 
-RUNNER_SCHEMA_VERSION = "1.0.0"
-RUBRIC_VERSION = "2.0.0"
+RUNNER_SCHEMA_VERSION = "1.1.0"
+RUBRIC_VERSION = "3.0.0"
 VARIANTS = ("baseline", "skill")
 
 
@@ -72,7 +72,14 @@ def load_task_set(path: Path) -> tuple[str, list[dict]]:
             workspaces.add(workspace)
             resolved[variant] = workspace
         ids.add(task_id)
-        normalized.append({"id": task_id, "prompt": prompt.strip(), "workspaces": resolved})
+        normalized.append(
+            {
+                "id": task_id,
+                "category": task.get("category", "uncategorized"),
+                "prompt": prompt.strip(),
+                "workspaces": resolved,
+            }
+        )
     return version.strip(), normalized
 
 
@@ -85,6 +92,7 @@ def build_schedule(tasks: list[dict], seed: int) -> list[dict]:
     schedule = [
         {
             "id": task["id"],
+            "category": task["category"],
             "variant": variant,
             "prompt": task["prompt"],
             "workspace": task["workspaces"][variant],
@@ -180,6 +188,7 @@ def write_review_artifacts(
             {
                 "blind_id": run["blind_id"],
                 "task_id": run["id"],
+                "category": run.get("category", "uncategorized"),
                 "agent_response": run["agent_response"],
                 "diff_artifact": run["diff_artifact"],
                 "diff_sha256": run["diff_sha256"],
@@ -189,6 +198,7 @@ def write_review_artifacts(
                 and isinstance(run.get("output_tokens"), (int, float))
                 else None,
                 "duration_seconds": run["duration_seconds"],
+                "token_budget_exceeded": run.get("token_budget_exceeded"),
             }
         )
         mapping.append(
@@ -304,9 +314,24 @@ def main() -> int:
         "skill_commit": args.skill_commit,
         "runner_schema_version": RUNNER_SCHEMA_VERSION,
         "order_seed": args.seed,
+        "skill_body_sha256": file_sha256(
+            args.skill_codex_home
+            / "skills"
+            / args.skill_name
+            / "SKILL.md"
+        ),
     }
+    preparation_manifest = args.task_set.parent / "preparation-manifest.json"
+    if preparation_manifest.is_file():
+        experiment["preparation_manifest_sha256"] = file_sha256(
+            preparation_manifest
+        )
     selected = [
-        {"id": run["id"], "variant": run["variant"], "blind_id": run["blind_id"]}
+        {
+            "id": run["id"],
+            "variant": run["variant"],
+            "blind_id": run["blind_id"],
+        }
         for run in schedule
     ]
     if args.output.exists():
@@ -419,9 +444,16 @@ def main() -> int:
         diff_path = args.artifacts_dir / f"{item['blind_id']}.diff"
         diff_meta = write_log(diff_path, after["diff"], args.unsafe_raw_logs)
         usage = parsed["usage"]
+        run_tokens = (
+            usage["input_tokens"] + usage["output_tokens"]
+            if isinstance(usage.get("input_tokens"), (int, float))
+            and isinstance(usage.get("output_tokens"), (int, float))
+            else None
+        )
         runs.append(
             {
                 "id": item["id"],
+                "category": item["category"],
                 "variant": item["variant"],
                 "blind_id": item["blind_id"],
                 "agent_response": parsed["response"],
@@ -431,6 +463,11 @@ def main() -> int:
                 "cached_input_tokens": usage.get("cached_input_tokens"),
                 "output_tokens": usage.get("output_tokens"),
                 "reasoning_output_tokens": usage.get("reasoning_output_tokens"),
+                "token_budget_exceeded": (
+                    run_tokens > args.token_budget
+                    if run_tokens is not None
+                    else None
+                ),
                 "duration_seconds": duration,
                 "workspace_head_before": before["head"],
                 "workspace_status_before_sha256": before["status_sha256"],

@@ -28,13 +28,19 @@ jobs:
           python-version: "3.12"
 
       - name: Compile scripts
-        run: python -m compileall -q scripts tests
+        run: python -m compileall -q scripts tests fixtures evaluation
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Test paired evaluation scorer
         run: python scripts/score_eval.py --self-test
+
+      - name: Calibrate engineering Pilot
+        run: >-
+          python scripts/calibrate_engineering_pilot.py
+          references/engineering-task-pilot-v1.json
+          --allow-verification-commands
 
       - name: Test trigger evaluation scorer
         run: python scripts/score_trigger_eval.py --self-test

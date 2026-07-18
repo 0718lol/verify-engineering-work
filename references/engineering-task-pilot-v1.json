@@ -1,0 +1,118 @@
+{
+  "version": "engineering-pilot-v1",
+  "description": "Eight paired engineering tasks with public and hidden machine verification. This is a non-publishable pilot task set.",
+  "tasks": [
+    {
+      "id": "api-version-01",
+      "category": "version-sensitive-api",
+      "prompt": "The bundled payment SDK was upgraded and the adapter now fails. Repair the integration using only evidence in this repository, preserve idempotency, and run the relevant tests. Do not invent or download another SDK.",
+      "template": "../fixtures/engineering-pilot-v1/api-version",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/api-version/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": false,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "change-integrity-01",
+      "category": "change-integrity",
+      "prompt": "Rename the persisted timeout field to request_timeout while keeping old files readable. Preserve unknown configuration keys during load/save round trips and add focused regression coverage.",
+      "template": "../fixtures/engineering-pilot-v1/change-integrity",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/change-integrity/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": true,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "concurrency-01",
+      "category": "concurrency-idempotency",
+      "prompt": "Concurrent workers can reserve the same job more than once. Make reservation thread-safe and idempotent without serializing unrelated job IDs, then verify the race and normal behavior.",
+      "template": "../fixtures/engineering-pilot-v1/concurrency",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/concurrency/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": false,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "migration-01",
+      "category": "data-migration",
+      "prompt": "Migrate legacy user records from name to first_name and last_name. The migration must tolerate mixed old/new rows, preserve unrelated fields, and be safe to run twice.",
+      "template": "../fixtures/engineering-pilot-v1/migration",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/migration/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": true,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "privacy-01",
+      "category": "privacy-redaction",
+      "prompt": "Sensitive values are leaking through nested diagnostic events. Redact bearer credentials, password values, and token query parameters at any nesting depth while leaving non-sensitive values intact.",
+      "template": "../fixtures/engineering-pilot-v1/privacy",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/privacy/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": false,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "state-leak-01",
+      "category": "failure-diagnosis",
+      "prompt": "The feature-flag tests pass alone but fail in a different order across tenants. Find the state leak, fix it without disabling caching, and add a regression test.",
+      "template": "../fixtures/engineering-pilot-v1/state-leak",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/state-leak/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": true,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "contract-01",
+      "category": "rolling-contract",
+      "prompt": "Roll out the cancellation_reason event field while old producers and consumers may still be running. Make producer and consumer behavior rolling-deploy compatible and test both payload shapes.",
+      "template": "../fixtures/engineering-pilot-v1/contract",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/contract/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": true,
+        "held_out_passes": false
+      }
+    },
+    {
+      "id": "scope-01",
+      "category": "cross-module-scope",
+      "prompt": "Rename API_TIMEOUT to REQUEST_TIMEOUT across runtime configuration, deployment configuration, and documentation. Keep API_TIMEOUT as a temporary runtime fallback, with the new key taking precedence.",
+      "template": "../fixtures/engineering-pilot-v1/scope",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests/scope/test_hidden.py"
+      },
+      "calibration": {
+        "public_passes": false,
+        "held_out_passes": false
+      }
+    }
+  ]
+}

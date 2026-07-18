@@ -7,6 +7,9 @@ import json
 import re
 from pathlib import Path
 
+from prepare_paired_eval import directory_manifest, load_spec
+from run_paired_eval import RUBRIC_VERSION
+
 from run_trigger_eval import (
     load_compatibility,
     negative_detection_observable,
@@ -179,6 +182,42 @@ def validate_version_and_compatibility() -> None:
         )
 
 
+def validate_engineering_assets() -> None:
+    task_set_path = ROOT / "references" / "engineering-task-pilot-v1.json"
+    version, tasks = load_spec(task_set_path)
+    require(version == "engineering-pilot-v1", "engineering Pilot version changed")
+    require(len(tasks) == 8, "engineering Pilot must contain 8 tasks")
+    require(
+        len({task["category"] for task in tasks}) == 8,
+        "engineering Pilot categories must be distinct",
+    )
+    for task in tasks:
+        template_files = directory_manifest(task["template"])
+        require(
+            any(path.startswith("tests/") for path in template_files),
+            f"{task['id']}: fixture must contain public tests",
+        )
+        require(
+            task["verification"]["hidden_test"].is_file(),
+            f"{task['id']}: hidden verification is missing",
+        )
+
+    rubric = (ROOT / "references" / "eval-rubric.md").read_text(encoding="utf-8")
+    require(
+        f"Rubric version: `{RUBRIC_VERSION}`." in rubric,
+        "paired runner and rubric versions must agree",
+    )
+    schema_paths = sorted((ROOT / "schemas").glob("*.schema.json"))
+    require(len(schema_paths) == 4, "exactly four evaluation schemas are required")
+    for schema_path in schema_paths:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        require(
+            schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema",
+            f"{schema_path.name}: unsupported JSON Schema draft",
+        )
+        require(schema.get("type") == "object", f"{schema_path.name}: root must be an object")
+
+
 def validate_local_links() -> None:
     for document in (ROOT / "README.md", ROOT / "SKILL.md"):
         content = document.read_text(encoding="utf-8")
@@ -192,6 +231,7 @@ def validate_local_links() -> None:
 def main() -> None:
     validate_skill_metadata()
     validate_trigger_assets()
+    validate_engineering_assets()
     validate_version_and_compatibility()
     validate_local_links()
     print("repository validation passed")

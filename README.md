@@ -4,7 +4,7 @@
 
 面向真实代码库的 AI 编程可靠性护栏。它不负责让模型“更聪明”，而是通过证据核验、精确编辑、风险分级验证和失败破局，降低复杂工程任务中的可避免错误。
 
-当前版本：`0.3.0`。当前状态：边界触发基准、可恢复触发评测、实验快照和盲化配对运行链路已验证；真实工程质量提升仍需完成足量对照实验后才能声明。
+当前版本：`0.4.0`。当前状态：边界触发基准、实验快照、盲化配对运行、不可变工程夹具和 held-out 机器验收链路已验证；内置 8 对工程任务仅用于 Pilot，真实质量提升仍需扩展到足量对照实验后才能声明。
 
 ## 面向谁
 
@@ -56,37 +56,65 @@ $verify-engineering-work 修复这个跨模块鉴权问题，并验证兼容性�
 
 ## 工程质量评测
 
-使用同一模型、工具权限、任务输入和相近 Token 预算，为每个任务分别运行 `baseline` 与 `skill`。建议至少准备 40 个任务对，随机运行顺序，并由不知道分组的评审者按 [references/eval-rubric.md](references/eval-rubric.md) 打分。
+使用同一模型、工具权限、任务输入和相近 Token 预算，为每个任务分别运行 `baseline` 与 `skill`。建议至少准备 40 个任务对，随机运行顺序，先执行公开与隐藏机器验收，再由不知道分组的评审者按 [references/eval-rubric.md](references/eval-rubric.md) 打分。
 
-`scripts/run_paired_eval.py` 会检查两套 Codex Home 和每个变体的独立 Git 工作区，固定种子随机运行，以盲编号保存代理回答和 diff，并把分组映射写到单独文件。基线 Codex Home 不得安装本 Skill，Skill Codex Home 必须包含 `skills/verify-engineering-work/SKILL.md`。任务集格式见 [references/paired-task-set.example.json](references/paired-task-set.example.json)。
+v0.4 内置 [references/engineering-task-pilot-v1.json](references/engineering-task-pilot-v1.json)，包含版本敏感 API、变更完整性、并发幂等、数据迁移、隐私脱敏、状态泄漏、滚动契约和跨模块配置 8 个类别。每个任务都有公开测试和不会复制进代理工作区的 held-out 测试。它用于校准流程和发现问题，样本不足以发布效果结论。
+
+`scripts/prepare_paired_eval.py` 先把每个只读模板提交为一个固定 Git seed，再使用 `--no-hardlinks` 分别克隆 baseline 与 Skill 工作区。两边从同一 commit 开始，文件存储相互独立；准备 manifest 记录模板文件、held-out 测试、任务集和 fixture commit 的 SHA-256。
+
+Pilot 校准固定为：8 个任务中 4 个公开测试通过、4 个公开测试失败，8 个 held-out 测试全部失败。CI 使用 `scripts/calibrate_engineering_pilot.py` 锁定这个未修复基线，防止夹具被意外改好后继续产生失真的比较结果。
 
 ```bash
+python3 scripts/prepare_paired_eval.py \
+  references/engineering-task-pilot-v1.json \
+  .eval/engineering-pilot-v1
+
 python3 scripts/run_paired_eval.py \
-  paired-tasks.json paired-runs.json \
+  .eval/engineering-pilot-v1/paired-tasks.json \
+  .eval/engineering-pilot-v1/paired-runs.json \
   --baseline-codex-home /path/to/baseline-codex-home \
   --skill-codex-home /path/to/skill-codex-home \
-  --artifacts-dir paired-artifacts \
-  --review-output blind-review.json \
-  --mapping-output blind-mapping.json \
+  --artifacts-dir .eval/engineering-pilot-v1/run-artifacts \
+  --review-output .eval/engineering-pilot-v1/blind-review.json \
+  --mapping-output .eval/engineering-pilot-v1/blind-mapping.json \
   --skill-commit "$(git rev-parse HEAD)" \
   --seed 20260718 \
   --max-total-tokens 2000000 \
   --allow-workspace-write
 
+python3 scripts/verify_paired_eval.py \
+  .eval/engineering-pilot-v1/paired-tasks.json \
+  .eval/engineering-pilot-v1/paired-runs.json \
+  .eval/engineering-pilot-v1/machine-results.json \
+  --artifacts-dir .eval/engineering-pilot-v1/verification-artifacts \
+  --allow-verification-commands
+
 # 盲评者参考 references/blind-scores.example.json 填写评分后：
 python3 scripts/build_scored_eval.py \
-  paired-runs.json blind-mapping.json blind-scores.json scored-results.json
-python3 scripts/score_eval.py scored-results.json
+  .eval/engineering-pilot-v1/paired-runs.json \
+  .eval/engineering-pilot-v1/blind-mapping.json \
+  blind-scores.json scored-results.json \
+  --machine-results .eval/engineering-pilot-v1/machine-results.json
+python3 scripts/score_eval.py scored-results.json --minimum-pairs 8
 python3 scripts/score_eval.py --self-test
 ```
 
-运行器要求显式传入 `--allow-workspace-write`，因为任务会修改工作区。默认拒绝脏工作区和重复使用同一目录；中断后用完全相同参数追加 `--resume`。原始事件与 diff 默认脱敏，但用于正式评审前仍应检查任务夹具中是否包含秘密信息。`--token-budget` 是每个任务的实验设计元数据，`--max-total-tokens` 是在下一次运行前检查的全局软上限。
+`scripts/run_paired_eval.py` 会检查两套 Codex Home 和独立 Git 工作区，固定种子随机运行，以盲编号保存代理回答和 diff，并把分组映射写到单独文件。基线 Codex Home 不得安装本 Skill，Skill Codex Home 必须包含 `skills/verify-engineering-work/SKILL.md`。手工任务集格式仍可参考 [references/paired-task-set.example.json](references/paired-task-set.example.json)；正式实验优先使用准备器。
+
+运行器要求显式传入 `--allow-workspace-write`。默认拒绝脏工作区和重复使用同一目录；中断后用完全相同参数追加 `--resume`。`--token-budget` 是每次运行的预算门槛，实际用量超过它会记录违规并阻止结果发布；`--max-total-tokens` 是在下一次运行前检查的全局软上限。
+
+机器验收会核对工作区仍与运行检查点一致，分别运行公开测试和 held-out 测试，并确认测试自身没有修改工作区。命令来自任务集，因此 CLI 要求显式传入 `--allow-verification-commands`。held-out 测试失败会自动写入 `machine_verification_failed` 严重错误。缺少机器结果、缺少 Token 用量、存在预算违规，或者缺少任务集、准备 manifest、Skill 文件与运行器来源哈希时，即使人工评分很高也不会得到 `publication_ready`。
+
+Pilot 的 held-out 测试保存在开源仓库中，只是不会进入代理工作区，不构成对同一系统用户的安全隔离。正式实验必须把私有验收套件放在代理不可读取的独立容器或评审机上；不得把本 Pilot 的机器通过率包装成未知测试集泛化能力。
+
+任务规范、准备产物、机器结果和最终评分数据的 JSON Schema 位于 [schemas](schemas)。运行脚本会执行更严格的语义与来源一致性检查，Schema 主要用于编辑器提示、外部工具接入和格式版本管理。
 
 评分器会：
 
 - 强制每个任务 ID 恰好包含一条 baseline 和一条 skill 结果；
 - 拒绝空样本、重复样本、缺失配对、无穷值和越界分数；
 - 输出通过率、严重错误率、成本均值及 95% 区间；
+- 输出公开/隐藏机器验收通过率及成对差异；
 - 使用成对 Bootstrap 计算 Skill 相对基线的差异区间；
 - 只有达到 40 对样本并提供版本、模型、运行器和 commit 元数据时，标记为 `publication_ready`。
 

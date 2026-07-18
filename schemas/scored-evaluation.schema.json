@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/0718lol/verify-engineering-work/schemas/scored-evaluation.schema.json",
+  "title": "Scored Paired Engineering Evaluation",
+  "type": "object",
+  "required": ["experiment", "cases"],
+  "properties": {
+    "experiment": {"type": "object"},
+    "cases": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "variant",
+          "scores",
+          "critical_failures",
+          "machine_verification_passed",
+          "public_verification_passed",
+          "held_out_verification_passed",
+          "token_budget_exceeded"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "variant": {"enum": ["baseline", "skill"]},
+          "scores": {"type": "object"},
+          "critical_failures": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "machine_verification_passed": {"type": ["boolean", "null"]},
+          "public_verification_passed": {"type": ["boolean", "null"]},
+          "held_out_verification_passed": {"type": ["boolean", "null"]},
+          "token_budget_exceeded": {"type": ["boolean", "null"]}
+        }
+      }
+    }
+  }
+}

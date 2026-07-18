@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/0718lol/verify-engineering-work/schemas/prepared-task-set.schema.json",
+  "title": "Prepared Paired Task Set",
+  "type": "object",
+  "required": [
+    "version",
+    "preparation_schema_version",
+    "source_task_set_sha256",
+    "tasks"
+  ],
+  "properties": {
+    "version": {"type": "string", "minLength": 1},
+    "preparation_schema_version": {"type": "string", "minLength": 1},
+    "source_task_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "prompt", "workspaces", "verification"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "category": {"type": "string", "minLength": 1},
+          "prompt": {"type": "string", "minLength": 1},
+          "workspaces": {
+            "type": "object",
+            "required": ["baseline", "skill"],
+            "properties": {
+              "baseline": {"type": "string", "minLength": 1},
+              "skill": {"type": "string", "minLength": 1}
+            }
+          },
+          "verification": {
+            "type": "object",
+            "required": ["public_command", "hidden_test", "hidden_test_sha256"],
+            "properties": {
+              "public_command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1}
+              },
+              "hidden_test": {"type": "string", "minLength": 1},
+              "hidden_test_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

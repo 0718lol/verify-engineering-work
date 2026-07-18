@@ -29,6 +29,10 @@ REQUIRED_EXPERIMENT_FIELDS = (
     "task_set_version",
     "token_budget",
     "skill_commit",
+    "task_set_sha256",
+    "runner_schema_version",
+    "skill_body_sha256",
+    "preparation_manifest_sha256",
 )
 VALID_VARIANTS = ("baseline", "skill")
 
@@ -84,10 +88,35 @@ def validate_case(case: dict, index: int) -> dict:
         value = case.get(field)
         if value is not None and (not is_number(value) or value < 0):
             raise EvaluationError(f"{case_id}: {field} must be a finite non-negative number")
+    for field in (
+        "machine_verification_passed",
+        "public_verification_passed",
+        "held_out_verification_passed",
+        "token_budget_exceeded",
+    ):
+        value = case.get(field)
+        if value is not None and not isinstance(value, bool):
+            raise EvaluationError(f"{case_id}: {field} must be boolean or null")
+    machine = case.get("machine_verification_passed")
+    public = case.get("public_verification_passed")
+    held_out = case.get("held_out_verification_passed")
+    if (
+        machine is not None
+        and public is not None
+        and held_out is not None
+        and machine != (public and held_out)
+    ):
+        raise EvaluationError(
+            f"{case_id}: machine verification must equal public and held-out checks"
+        )
     normalized = dict(case)
     normalized["id"] = case_id.strip()
     normalized["total"] = total
-    normalized["production_compliant"] = total >= 85 and not failures
+    normalized["production_compliant"] = (
+        total >= 85
+        and not failures
+        and normalized.get("machine_verification_passed") is not False
+    )
     return normalized
 
 
@@ -151,7 +180,11 @@ def paired_metric(pairs: list[dict[str, dict]], field: str, scale: float = 1.0) 
     }
 
 
-def experiment_status(payload: dict, pair_count: int, minimum_pairs: int) -> dict:
+def experiment_status(
+    payload: dict,
+    pairs: list[dict[str, dict]],
+    minimum_pairs: int,
+) -> dict:
     experiment = payload.get("experiment")
     if experiment is not None and not isinstance(experiment, dict):
         raise EvaluationError("experiment must be an object when provided")
@@ -165,13 +198,45 @@ def experiment_status(payload: dict, pair_count: int, minimum_pairs: int) -> dic
                 invalid.append(field)
         elif value not in (None, "") and (not isinstance(value, str) or not value.strip()):
             invalid.append(field)
+    pair_count = len(pairs)
+    all_cases = [
+        pair[variant]
+        for pair in pairs
+        for variant in VALID_VARIANTS
+    ]
+    missing_machine_results = sum(
+        case.get("machine_verification_passed") is None for case in all_cases
+    )
+    missing_machine_detail = sum(
+        case.get("public_verification_passed") is None
+        or case.get("held_out_verification_passed") is None
+        for case in all_cases
+    )
+    token_budget_violations = sum(
+        case.get("token_budget_exceeded") is True for case in all_cases
+    )
+    missing_token_budget_status = sum(
+        case.get("token_budget_exceeded") is None for case in all_cases
+    )
     return {
         "matched_pairs": pair_count,
         "minimum_pairs": minimum_pairs,
         "sample_size_sufficient": pair_count >= minimum_pairs,
         "missing_experiment_metadata": missing,
         "invalid_experiment_metadata": invalid,
-        "publication_ready": pair_count >= minimum_pairs and not missing and not invalid,
+        "missing_machine_results": missing_machine_results,
+        "missing_machine_detail": missing_machine_detail,
+        "token_budget_violations": token_budget_violations,
+        "missing_token_budget_status": missing_token_budget_status,
+        "publication_ready": (
+            pair_count >= minimum_pairs
+            and not missing
+            and not invalid
+            and missing_machine_results == 0
+            and missing_machine_detail == 0
+            and token_budget_violations == 0
+            and missing_token_budget_status == 0
+        ),
     }
 
 
@@ -183,7 +248,7 @@ def summarize(payload: dict, minimum_pairs: int = 40) -> dict:
     }
     summary = {
         "experiment": payload.get("experiment", {}),
-        "quality_gate": experiment_status(payload, len(pairs), minimum_pairs),
+        "quality_gate": experiment_status(payload, pairs, minimum_pairs),
         "variants": {},
         "comparison": {},
     }
@@ -205,6 +270,18 @@ def summarize(payload: dict, minimum_pairs: int = 40) -> dict:
             "average_human_interventions": average(
                 [case["human_interventions"] for case in group if case.get("human_interventions") is not None]
             ),
+            "machine_verification_pass_rate": (
+                sum(case.get("machine_verification_passed") is True for case in group)
+                / count
+            ),
+            "public_verification_pass_rate": (
+                sum(case.get("public_verification_passed") is True for case in group)
+                / count
+            ),
+            "held_out_verification_pass_rate": (
+                sum(case.get("held_out_verification_passed") is True for case in group)
+                / count
+            ),
         }
 
     for pair in pairs:
@@ -221,6 +298,21 @@ def summarize(payload: dict, minimum_pairs: int = 40) -> dict:
         "tokens": paired_metric(pairs, "tokens"),
         "duration_seconds": paired_metric(pairs, "duration_seconds"),
         "human_interventions": paired_metric(pairs, "human_interventions"),
+        "machine_verification_percentage_points": paired_metric(
+            pairs,
+            "machine_verification_passed",
+            scale=100.0,
+        ),
+        "public_verification_percentage_points": paired_metric(
+            pairs,
+            "public_verification_passed",
+            scale=100.0,
+        ),
+        "held_out_verification_percentage_points": paired_metric(
+            pairs,
+            "held_out_verification_passed",
+            scale=100.0,
+        ),
     }
     return summary
 
@@ -244,8 +336,26 @@ def self_test() -> None:
     }
     skill_scores = dict(CATEGORIES)
     pair = [
-        {"id": "a", "variant": "baseline", "scores": base_scores, "critical_failures": []},
-        {"id": "a", "variant": "skill", "scores": skill_scores, "critical_failures": []},
+        {
+            "id": "a",
+            "variant": "baseline",
+            "scores": base_scores,
+            "critical_failures": [],
+            "machine_verification_passed": False,
+            "public_verification_passed": False,
+            "held_out_verification_passed": False,
+            "token_budget_exceeded": False,
+        },
+        {
+            "id": "a",
+            "variant": "skill",
+            "scores": skill_scores,
+            "critical_failures": [],
+            "machine_verification_passed": True,
+            "public_verification_passed": True,
+            "held_out_verification_passed": True,
+            "token_budget_exceeded": False,
+        },
     ]
     result = summarize({"cases": pair}, minimum_pairs=1)
     assert result["quality_gate"]["matched_pairs"] == 1

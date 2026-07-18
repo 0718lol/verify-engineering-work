@@ -1,0 +1,3 @@
+service:
+  env:
+    API_TIMEOUT: "45"

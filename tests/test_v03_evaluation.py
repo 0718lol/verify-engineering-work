@@ -196,6 +196,8 @@ class PairedRunnerTests(unittest.TestCase):
             "runs": [
                 {
                     "blind_id": "blind-a",
+                    "id": "task-a",
+                    "variant": "baseline",
                     "input_tokens": 10,
                     "output_tokens": 2,
                     "duration_seconds": 1,
