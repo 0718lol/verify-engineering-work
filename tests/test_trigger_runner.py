@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import tempfile
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import run_trigger_eval as runner
+import reclassify_trigger_eval as reclassifier
 
 
 class TriggerDetectionTests(unittest.TestCase):
@@ -31,6 +33,23 @@ class TriggerDetectionTests(unittest.TestCase):
 
     def test_fixture_detects_skill_body_read(self) -> None:
         result = runner.parse_events(self.triggered, "verify-engineering-work", True)
+        self.assertIs(result["triggered"], True)
+        self.assertEqual(result["detection_method"], "skill_body_read")
+
+    def test_installed_skill_directory_is_not_required_in_path(self) -> None:
+        event = json.dumps(
+            {
+                "type": "item.started",
+                "item": {
+                    "type": "command_execution",
+                    "command": (
+                        "sed -n '1,200p' "
+                        "/tmp/checkout/verify-engineering-work/SKILL.md"
+                    ),
+                },
+            }
+        )
+        result = runner.parse_events(event, "verify-engineering-work", True)
         self.assertIs(result["triggered"], True)
         self.assertEqual(result["detection_method"], "skill_body_read")
 
@@ -189,6 +208,57 @@ class RunnerStateTests(unittest.TestCase):
             ):
                 self.assertEqual(runner.main(), 0)
                 execute.assert_not_called()
+
+
+class ReclassificationTests(unittest.TestCase):
+    def test_retained_log_can_correct_a_false_negative(self) -> None:
+        fixture = (
+            ROOT
+            / "tests"
+            / "fixtures"
+            / "codex-cli-0.144.0-alpha.4"
+            / "triggered.jsonl"
+        ).read_text(encoding="utf-8")
+        digest = hashlib.sha256(fixture.encode("utf-8")).hexdigest()
+        payload = {
+            "experiment": {
+                "detection_schema_version": "2.1.0",
+                "negative_detection_verified": True,
+            },
+            "observations": [
+                {
+                    "id": "triggered",
+                    "triggered": False,
+                    "detection_status": "not_triggered",
+                    "detection_method": "verified_absence",
+                    "attempts": 1,
+                    "log_redactions": 0,
+                    "log_sha256": [
+                        {"attempt": 1, "stdout_sha256": digest}
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory)
+            (logs / "triggered.attempt-1.stdout.jsonl").write_text(
+                fixture,
+                encoding="utf-8",
+            )
+            result, changed = reclassifier.reclassify(
+                payload,
+                logs,
+                "verify-engineering-work",
+            )
+        observation = result["observations"][0]
+        self.assertEqual(changed, 1)
+        self.assertIs(observation["triggered"], True)
+        self.assertEqual(observation["detection_method"], "skill_body_read")
+        self.assertIs(observation["log_integrity_verified"], True)
+        self.assertEqual(
+            result["experiment"]["detection_schema_version"],
+            runner.DETECTION_SCHEMA_VERSION,
+        )
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_PATH = ROOT / "VERSION"
 DEFAULT_COMPATIBILITY_PATH = ROOT / "references" / "compatibility.json"
-DETECTION_SCHEMA_VERSION = "2.1.0"
+DETECTION_SCHEMA_VERSION = "2.2.0"
 REDACTION_PATTERNS = (
     re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -109,7 +109,7 @@ def event_names_skill(event: dict, skill_name: str) -> bool:
 
 
 def event_reads_skill_body(event: dict, skill_name: str) -> bool:
-    marker = f"skills/{skill_name}/SKILL.md"
+    marker = f"{skill_name}/SKILL.md"
     containers = [event]
     item = event.get("item")
     if isinstance(item, dict):

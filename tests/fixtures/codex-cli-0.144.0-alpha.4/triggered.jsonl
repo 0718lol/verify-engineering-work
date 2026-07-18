@@ -1,5 +1,5 @@
 {"type":"thread.started","thread_id":"fixture-thread"}
 {"type":"turn.started"}
-{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"sed -n '1,220p' /tmp/workspace/.agents/skills/verify-engineering-work/SKILL.md","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"sed -n '1,220p' /tmp/workspace/.agents/skills/verify-engineering-work/SKILL.md","aggregated_output":"[fixture content omitted]","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"sed -n '1,220p' /tmp/workspace/verify-engineering-work/SKILL.md","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"sed -n '1,220p' /tmp/workspace/verify-engineering-work/SKILL.md","aggregated_output":"[fixture content omitted]","exit_code":0,"status":"completed"}}
 {"type":"turn.completed","usage":{"input_tokens":12000,"cached_input_tokens":9000,"output_tokens":500,"reasoning_output_tokens":100}}

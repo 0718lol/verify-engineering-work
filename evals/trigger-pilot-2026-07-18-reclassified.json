@@ -1,0 +1,384 @@
+{
+  "experiment": {
+    "skill_version": "0.2.2",
+    "model": "gpt-5.6-sol",
+    "harness": "codex-cli 0.144.0-alpha.4-read-only",
+    "skill_commit": "9833024fc5dca24627b55e10d3c143dc04c6606c",
+    "detection_schema_version": "2.2.0",
+    "negative_detection_verified": true,
+    "compatibility_schema_version": "1.0.0",
+    "reclassified_from_detection_schema_version": "2.1.0"
+  },
+  "run_state": {
+    "status": "budget_exhausted",
+    "selected_case_ids": [
+      "trigger-17",
+      "no-trigger-07",
+      "trigger-07",
+      "no-trigger-12",
+      "trigger-20",
+      "no-trigger-05",
+      "trigger-04",
+      "no-trigger-06",
+      "trigger-14",
+      "no-trigger-02",
+      "trigger-05",
+      "no-trigger-18",
+      "trigger-15",
+      "no-trigger-10",
+      "trigger-08",
+      "no-trigger-11",
+      "trigger-03",
+      "no-trigger-16",
+      "trigger-01",
+      "no-trigger-09",
+      "trigger-06",
+      "no-trigger-17",
+      "trigger-16",
+      "no-trigger-01",
+      "trigger-19",
+      "no-trigger-14",
+      "trigger-10",
+      "no-trigger-03",
+      "trigger-18",
+      "no-trigger-20",
+      "trigger-12",
+      "no-trigger-08",
+      "trigger-09",
+      "no-trigger-19",
+      "trigger-13",
+      "no-trigger-13",
+      "trigger-02",
+      "no-trigger-15",
+      "trigger-11",
+      "no-trigger-04"
+    ],
+    "completed_cases": 13,
+    "remaining_cases": 27,
+    "usage": {
+      "input_tokens": 665824,
+      "output_tokens": 12654,
+      "total_tokens": 678478,
+      "estimated_cost_usd": null
+    },
+    "limits": {
+      "max_input_tokens": null,
+      "max_output_tokens": null,
+      "max_total_tokens": 600000,
+      "max_cost_usd": null,
+      "input_usd_per_million": null,
+      "output_usd_per_million": null
+    },
+    "detail": "total token budget reached: 678478 >= 600000"
+  },
+  "observations": [
+    {
+      "id": "trigger-17",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 16,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "f76a32b1859052362a493b766d817117a0370c589cc81ab16ceb9ee3095acb54",
+          "stderr_sha256": "9a7103039cc5af46b5cdc8c01356edbf500a42089e77cffbf9c0adf11cee1e88"
+        }
+      ],
+      "input_tokens": 54697,
+      "output_tokens": 1574,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    },
+    {
+      "id": "no-trigger-07",
+      "triggered": false,
+      "detection_status": "not_triggered",
+      "detection_method": "verified_absence",
+      "turn_completed": true,
+      "valid_events": 4,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "46b650b08efad5b39f3baadc8c8dfa7a54abd20f4c6a1651ca3e13265eab3ac1",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 12135,
+      "output_tokens": 316,
+      "log_integrity_verified": true
+    },
+    {
+      "id": "trigger-07",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 14,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "383f039a0e2c28a916ba4713b23942190ef298e1a8cfa411845ab6783665b0eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 69353,
+      "output_tokens": 1070,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    },
+    {
+      "id": "no-trigger-12",
+      "triggered": false,
+      "detection_status": "not_triggered",
+      "detection_method": "verified_absence",
+      "turn_completed": true,
+      "valid_events": 9,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "f4f8f560962aa07776f5405ede1d97a5eabccb6fd2b667749aa9b7c2a18336e8",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 36906,
+      "output_tokens": 320,
+      "log_integrity_verified": true
+    },
+    {
+      "id": "trigger-20",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 18,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "95096114d96ee3a84d4c4d9e8612c769eec83f9b0e0ac4a00cf09dd0a3347042",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 70051,
+      "output_tokens": 1669,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    },
+    {
+      "id": "no-trigger-05",
+      "triggered": false,
+      "detection_status": "not_triggered",
+      "detection_method": "verified_absence",
+      "turn_completed": true,
+      "valid_events": 9,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "f98231cce63dc82ca024399cc4d430ed72b6952423fdcc559650f0ceeecc9ea9",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 37012,
+      "output_tokens": 377,
+      "log_integrity_verified": true
+    },
+    {
+      "id": "trigger-04",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 19,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "6ce6a1475ff0606a01e5f9bb3c820c55198ba8a8756168da2a1d98c9ded00d2d",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 70209,
+      "output_tokens": 2157,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    },
+    {
+      "id": "no-trigger-06",
+      "triggered": false,
+      "detection_status": "not_triggered",
+      "detection_method": "verified_absence",
+      "turn_completed": true,
+      "valid_events": 9,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "42ef5c78e338a066846a7a809f0020ad451ddc68cf6679a9eb6763793fc0297b",
+          "stderr_sha256": "d9b5bedb3cb0464a2f46f1dd8bf566a646fbe34c21041da3aef60382390c8ca2"
+        }
+      ],
+      "input_tokens": 37054,
+      "output_tokens": 420,
+      "log_integrity_verified": true
+    },
+    {
+      "id": "trigger-14",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 16,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "4fe8722d4707a016a6dc2b80f883e8c47927a230cc1df390f5a7e70e2bb2b13b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 85009,
+      "output_tokens": 2067,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    },
+    {
+      "id": "no-trigger-02",
+      "triggered": false,
+      "detection_status": "not_triggered",
+      "detection_method": "verified_absence",
+      "turn_completed": true,
+      "valid_events": 4,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "0d4578a8788137cb14378b53c49be8a1020b2a00c69ab37d6ca9a4f126e2ce29",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 12133,
+      "output_tokens": 97,
+      "log_integrity_verified": true
+    },
+    {
+      "id": "trigger-05",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 16,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "1de3e486a9985ead94885d029747d79c5d37bd04168051679ec68d67d594188f",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 84740,
+      "output_tokens": 1078,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    },
+    {
+      "id": "no-trigger-18",
+      "triggered": false,
+      "detection_status": "not_triggered",
+      "detection_method": "verified_absence",
+      "turn_completed": true,
+      "valid_events": 4,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "185d0b9879619e91f040f8c6e425df73836961fcb439370dc109641fce1dba0d",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 12130,
+      "output_tokens": 222,
+      "log_integrity_verified": true
+    },
+    {
+      "id": "trigger-15",
+      "triggered": true,
+      "detection_status": "triggered",
+      "detection_method": "skill_body_read",
+      "turn_completed": true,
+      "valid_events": 16,
+      "attempts": 1,
+      "log_redactions": 0,
+      "raw_logs": false,
+      "log_sha256": [
+        {
+          "attempt": 1,
+          "stdout_sha256": "68fe0672da83cf7db4073fea43371a467884a95e32aaca899421a2633e58a05a",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "input_tokens": 84395,
+      "output_tokens": 1287,
+      "log_integrity_verified": true,
+      "reclassified_from": {
+        "triggered": false,
+        "detection_status": "not_triggered",
+        "detection_method": "verified_absence"
+      }
+    }
+  ]
+}

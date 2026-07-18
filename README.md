@@ -4,7 +4,7 @@
 
 面向真实代码库的 AI 编程可靠性护栏。它不负责让模型“更聪明”，而是通过证据核验、精确编辑、风险分级验证和失败破局，降低复杂工程任务中的可避免错误。
 
-当前版本：`0.2.2`。当前状态：架构、本地评分工具和可恢复触发评测链路已验证，真实模型效果仍需通过对照实验测量。
+当前版本：`0.2.3`。当前状态：架构、本地评分工具和可恢复触发评测链路已验证，真实模型效果仍需通过对照实验测量。
 
 ## 面向谁
 
@@ -112,22 +112,35 @@ python3 scripts/run_trigger_eval.py \
 
 Pilot 结果可用 `score_trigger_eval.py --allow-subset` 评分，但会明确标记为覆盖不完整且不可发布。
 
+如果保留的 JSONL 日志证明检测规则有缺陷，可在不重新调用模型的情况下写出一份独立的重分类结果，再重新评分。工具会核对未脱敏日志的 SHA-256、保留旧分类，并记录新旧检测 Schema：
+
+```bash
+python3 scripts/reclassify_trigger_eval.py \
+  trigger-observations.json trigger-logs trigger-observations-reclassified.json
+```
+
 ### 历史 Pilot（Skill 0.2.0）
 
 2026-07-17 使用 `gpt-5.6-sol` 与 Codex CLI `0.144.0-alpha.4` 在只读沙箱运行了 8 条平衡样本：4 条应触发任务全部触发，4 条不应触发任务均未触发，未观察到误触发或漏触发。点估计准确率为 100%，但 95% Wilson 区间仍为 67.6% 至 100%，因此该结果只是运行链路和触发描述的初步证据，`publication_ready` 为 `false`。
 
 原始观察值见 [evals/trigger-pilot-2026-07-17.json](evals/trigger-pilot-2026-07-17.json)。这组 Pilot 没有测试代码修改质量，也不能支持“生产合规率提高了多少”的结论。
 
+### 扩展 Pilot（Skill 0.2.2，检测 Schema 2.2.0）
+
+2026-07-18 使用同一模型和 CLI，以固定种子将正负样本交替排列，并在 `60` 万总 Token 软预算下完成 13 条：7 条应触发任务全部触发，6 条不应触发任务均未触发。重分类后的准确率为 100%，95% Wilson 区间为 77.2% 至 100%；累计记录 678,478 个 Token，结果仍因未覆盖完整 40 条而不可发布。
+
+本轮首先被检测 Schema 2.1.0 错记为 7 个漏触发，因为运行时从仓库直链读取 `verify-engineering-work/SKILL.md`，而检测器只接受包含 `skills/` 的路径。保留日志证明 Skill 实际已加载；Schema 2.2.0 放宽了安装目录假设，并通过日志 SHA-256 校验重分类，没有重新调用模型。原始分类历史保留在 [evals/trigger-pilot-2026-07-18-reclassified.json](evals/trigger-pilot-2026-07-18-reclassified.json) 中。
+
 观察文件格式：
 
 ```json
 {
   "experiment": {
-    "skill_version": "0.2.2",
+    "skill_version": "0.2.3",
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",
     "skill_commit": "git-commit",
-    "detection_schema_version": "2.1.0",
+    "detection_schema_version": "2.2.0",
     "negative_detection_verified": false,
     "compatibility_schema_version": "1.0.0"
   },

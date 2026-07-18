@@ -58,6 +58,7 @@ def validate_skill_metadata() -> None:
 def validate_trigger_assets() -> None:
     benchmark_path = ROOT / "references" / "trigger-benchmark-v1.json"
     pilot_path = ROOT / "evals" / "trigger-pilot-2026-07-17.json"
+    expanded_pilot_path = ROOT / "evals" / "trigger-pilot-2026-07-18-reclassified.json"
     benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
     cases = benchmark.get("cases")
     require(isinstance(cases, list) and len(cases) == 40, "trigger benchmark must contain 40 cases")
@@ -79,6 +80,21 @@ def validate_trigger_assets() -> None:
         pilot["confusion_matrix"]
         == {"true_positive": 4, "true_negative": 4, "false_positive": 0, "false_negative": 0},
         "checked-in Pilot confusion matrix changed unexpectedly",
+    )
+
+    expanded = score(benchmark, load_json(expanded_pilot_path), allow_subset=True)
+    require(expanded["quality_gate"]["cases"] == 13, "expanded Pilot must contain 13 observations")
+    require(expanded["quality_gate"]["indeterminate_cases"] == 0, "expanded Pilot must remain scorable")
+    require(expanded["quality_gate"]["publication_ready"] is False, "expanded Pilot must remain non-publishable")
+    require(
+        expanded["confusion_matrix"]
+        == {"true_positive": 7, "true_negative": 6, "false_positive": 0, "false_negative": 0},
+        "expanded Pilot confusion matrix changed unexpectedly",
+    )
+    require(
+        expanded["experiment"].get("reclassified_from_detection_schema_version") == "2.1.0"
+        and expanded["experiment"].get("detection_schema_version") == "2.2.0",
+        "expanded Pilot must preserve detection reclassification provenance",
     )
 
 
