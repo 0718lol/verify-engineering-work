@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -124,9 +126,98 @@ class TriggerReportingTests(unittest.TestCase):
             result["usage"]["expected_trigger"]["fields"]["cached_input_tokens"]["total"],
             4,
         )
+        invalid_metadata = {
+            field: False if field == "negative_detection_verified" else "value"
+            for field in score_trigger_eval.REQUIRED_EXPERIMENT_FIELDS
+        }
+        invalid_metadata["skill_commit"] = "a" * 40
+        invalid = score_trigger_eval.score(
+            benchmark,
+            {**observations, "experiment": invalid_metadata},
+            minimum_cases=2,
+        )
+        self.assertIn(
+            "benchmark_sha256",
+            invalid["quality_gate"]["invalid_experiment_metadata"],
+        )
 
 
 class PairedRunnerTests(unittest.TestCase):
+    def test_codex_homes_must_match_outside_target_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = root / "baseline-home"
+            skill = root / "skill-home"
+            for home in (baseline, skill):
+                home.mkdir()
+                (home / "config.toml").write_text("sandbox = 'read-only'\n")
+            installed = skill / "skills" / "verify-engineering-work"
+            installed.mkdir(parents=True)
+            (installed / "SKILL.md").write_text(
+                "---\nname: verify-engineering-work\ndescription: test\n---\n"
+            )
+            first = run_paired_eval.validate_skill_homes(
+                baseline, skill, "verify-engineering-work"
+            )
+            self.assertIsInstance(first, str)
+
+            (baseline / "sessions").mkdir()
+            (skill / "sessions").mkdir()
+            (baseline / "sessions" / "baseline.jsonl").write_text("runtime\n")
+            (skill / "sessions" / "skill.jsonl").write_text("runtime\n")
+            self.assertEqual(
+                first,
+                run_paired_eval.validate_skill_homes(
+                    baseline, skill, "verify-engineering-work"
+                ),
+            )
+
+            (skill / "config.toml").write_text("sandbox = 'workspace-write'\n")
+            with self.assertRaisesRegex(ValueError, "differ outside"):
+                run_paired_eval.validate_skill_homes(
+                    baseline, skill, "verify-engineering-work"
+                )
+
+    def test_git_capture_includes_untracked_files_and_detects_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            subprocess.run(
+                ["git", "init", "-q", "--initial-branch=main"],
+                cwd=workspace,
+                check=True,
+            )
+            tracked = workspace / "tracked.txt"
+            tracked.write_text("original\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=workspace, check=True)
+            environment = {
+                "GIT_AUTHOR_NAME": "Test",
+                "GIT_AUTHOR_EMAIL": "test@example.invalid",
+                "GIT_COMMITTER_NAME": "Test",
+                "GIT_COMMITTER_EMAIL": "test@example.invalid",
+            }
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "seed"],
+                cwd=workspace,
+                env={**os.environ, **environment},
+                check=True,
+            )
+            before = run_paired_eval.git_capture(workspace)
+            (workspace / "new.txt").write_text("new content\n", encoding="utf-8")
+            after_untracked = run_paired_eval.git_capture(workspace)
+            self.assertIn("new.txt", after_untracked["diff"])
+            self.assertIn("new content", after_untracked["diff"])
+
+            subprocess.run(["git", "add", "new.txt"], cwd=workspace, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "agent commit"],
+                cwd=workspace,
+                env={**os.environ, **environment},
+                check=True,
+            )
+            after_commit = run_paired_eval.git_capture(workspace)
+            self.assertNotEqual(before["head"], after_commit["head"])
+            self.assertFalse(run_paired_eval.same_workspace_state(before, after_commit))
+
     def test_task_loading_requires_distinct_workspaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -160,6 +251,12 @@ class PairedRunnerTests(unittest.TestCase):
             )
             self.assertEqual(schedule, run_paired_eval.build_schedule(tasks, 7))
             self.assertNotEqual(schedule[0]["blind_id"], schedule[1]["blind_id"])
+            self.assertEqual(
+                [task["id"] for task in run_paired_eval.select_tasks(tasks, {"task-a"})],
+                ["task-a"],
+            )
+            with self.assertRaisesRegex(ValueError, "unknown task IDs"):
+                run_paired_eval.select_tasks(tasks, {"missing"})
 
     def test_codex_output_extracts_response_and_usage(self) -> None:
         stream = "\n".join(

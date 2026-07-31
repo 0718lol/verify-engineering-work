@@ -216,6 +216,12 @@ def validate_engineering_assets() -> None:
             f"{schema_path.name}: unsupported JSON Schema draft",
         )
         require(schema.get("type") == "object", f"{schema_path.name}: root must be an object")
+    for relative in (
+        "docker/eval-runner.Dockerfile",
+        "scripts/codex_docker_wrapper.py",
+        "scripts/create_controlled_codex_homes.py",
+    ):
+        require((ROOT / relative).is_file(), f"controlled evaluation asset is missing: {relative}")
 
 
 def validate_workflow_contract() -> None:

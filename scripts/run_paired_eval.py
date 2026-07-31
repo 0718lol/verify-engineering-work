@@ -24,9 +24,19 @@ from run_trigger_eval import (
 )
 
 
-RUNNER_SCHEMA_VERSION = "1.1.0"
-RUBRIC_VERSION = "3.0.0"
+RUNNER_SCHEMA_VERSION = "1.2.0"
+RUBRIC_VERSION = "3.1.0"
 VARIANTS = ("baseline", "skill")
+CODEX_HOME_CONTROL_PATHS = {
+    "AGENTS.md",
+    "auth.json",
+    "config.toml",
+    "instructions.md",
+    "plugins",
+    "rules",
+    "skills",
+    "vendor_imports",
+}
 
 
 def load_task_set(path: Path) -> tuple[str, list[dict]]:
@@ -105,6 +115,18 @@ def build_schedule(tasks: list[dict], seed: int) -> list[dict]:
     return schedule
 
 
+def select_tasks(tasks: list[dict], ids: set[str] | None) -> list[dict]:
+    if ids is None:
+        return tasks
+    selected = [task for task in tasks if task["id"] in ids]
+    missing = ids - {task["id"] for task in selected}
+    if missing:
+        raise ValueError(f"unknown task IDs: {sorted(missing)}")
+    if not selected:
+        raise ValueError("no tasks selected")
+    return selected
+
+
 def parse_codex_output(stdout: str) -> dict:
     usage = {}
     responses = []
@@ -150,7 +172,7 @@ def git_capture(workspace: Path) -> dict:
     if head.returncode != 0 or status.returncode != 0:
         raise ValueError(f"workspace must be a Git repository: {workspace}")
     diff = subprocess.run(
-        ["git", "diff", "--binary", "HEAD"],
+        ["git", "diff", "--binary", "--no-ext-diff", "HEAD"],
         cwd=workspace,
         capture_output=True,
         text=True,
@@ -158,13 +180,50 @@ def git_capture(workspace: Path) -> dict:
     )
     if diff.returncode != 0:
         raise ValueError(f"cannot inspect workspace diff: {workspace}")
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if untracked.returncode != 0:
+        raise ValueError(f"cannot inspect untracked files: {workspace}")
+    diff_parts = [diff.stdout]
+    for relative in sorted(path for path in untracked.stdout.split("\0") if path):
+        untracked_diff = subprocess.run(
+            ["git", "diff", "--no-index", "--binary", "--", "/dev/null", relative],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if untracked_diff.returncode not in (0, 1):
+            raise ValueError(f"cannot inspect untracked file: {workspace / relative}")
+        diff_parts.append(untracked_diff.stdout)
+    complete_diff = "".join(diff_parts)
     return {
         "head": head.stdout.strip(),
         "status": status.stdout,
         "status_sha256": stable_sha256(status.stdout),
-        "diff": diff.stdout,
-        "diff_sha256": hashlib.sha256(diff.stdout.encode("utf-8")).hexdigest(),
+        "diff": complete_diff,
+        "diff_sha256": hashlib.sha256(complete_diff.encode("utf-8")).hexdigest(),
     }
+
+
+def checkpoint_matches(capture: dict, run: dict) -> bool:
+    return (
+        capture["head"] == run.get("workspace_head_after")
+        and capture["status_sha256"] == run.get("workspace_status_sha256")
+        and capture["diff_sha256"] == run.get("diff_sha256")
+    )
+
+
+def same_workspace_state(left: dict, right: dict) -> bool:
+    return all(
+        left[field] == right[field]
+        for field in ("head", "status_sha256", "diff_sha256")
+    )
 
 
 def total_tokens(runs: list[dict]) -> int:
@@ -192,6 +251,7 @@ def write_review_artifacts(
                 "agent_response": run["agent_response"],
                 "diff_artifact": run["diff_artifact"],
                 "diff_sha256": run["diff_sha256"],
+                "diff_stored_sha256": run.get("diff_stored_sha256"),
                 "workspace_status": run["workspace_status"],
                 "tokens": run["input_tokens"] + run["output_tokens"]
                 if isinstance(run.get("input_tokens"), (int, float))
@@ -229,7 +289,7 @@ def validate_skill_homes(
     baseline_home: Path,
     skill_home: Path,
     skill_name: str,
-) -> None:
+) -> str:
     for label, home in (("baseline", baseline_home), ("skill", skill_home)):
         if not home.is_dir():
             raise ValueError(f"{label} Codex home is not a directory: {home}")
@@ -239,6 +299,35 @@ def validate_skill_homes(
         raise ValueError(f"baseline Codex home must not contain {skill_name}")
     if not installed_skill.is_file():
         raise ValueError(f"skill Codex home must contain skills/{skill_name}/SKILL.md")
+    manifests = {}
+    for label, home in (("baseline", baseline_home), ("skill", skill_home)):
+        files = {}
+        for candidate in sorted(home.rglob("*")):
+            relative = candidate.relative_to(home)
+            if not relative.parts or relative.parts[0] not in CODEX_HOME_CONTROL_PATHS:
+                continue
+            if relative.parts[:2] == ("skills", skill_name):
+                continue
+            key = relative.as_posix()
+            if candidate.is_symlink():
+                files[key] = {"type": "symlink", "target": os.readlink(candidate)}
+            elif candidate.is_file():
+                files[key] = {"type": "file", "sha256": file_sha256(candidate)}
+        manifests[label] = files
+    if manifests["baseline"] != manifests["skill"]:
+        differing = sorted(
+            key
+            for key in set(manifests["baseline"]) | set(manifests["skill"])
+            if manifests["baseline"].get(key) != manifests["skill"].get(key)
+        )
+        preview = ", ".join(differing[:5])
+        if len(differing) > 5:
+            preview += ", ..."
+        raise ValueError(
+            "baseline and Skill Codex homes differ outside the target Skill: "
+            + preview
+        )
+    return stable_sha256(manifests["baseline"])
 
 
 def main() -> int:
@@ -254,6 +343,14 @@ def main() -> int:
     parser.add_argument("--skill-version")
     parser.add_argument("--skill-commit", required=False, default="")
     parser.add_argument("--model", default="gpt-5.6-sol")
+    parser.add_argument("--codex-executable", default="codex")
+    parser.add_argument("--ids", help="Comma-separated task IDs")
+    parser.add_argument(
+        "--held-out-isolation",
+        choices=("pilot-local", "evaluator-external"),
+        default="pilot-local",
+        help="Isolation level of held-out verification assets",
+    )
     parser.add_argument("--token-budget", type=int, default=20000)
     parser.add_argument("--max-total-tokens", type=int)
     parser.add_argument("--seed", type=int, default=20260718)
@@ -282,12 +379,14 @@ def main() -> int:
     if args.max_total_tokens is not None and args.max_total_tokens < 1:
         raise ValueError("--max-total-tokens must be positive")
 
-    validate_skill_homes(
+    codex_home_manifest_sha256 = validate_skill_homes(
         args.baseline_codex_home,
         args.skill_codex_home,
         args.skill_name,
     )
     task_set_version, tasks = load_task_set(args.task_set)
+    ids = {item.strip() for item in args.ids.split(",") if item.strip()} if args.ids else None
+    tasks = select_tasks(tasks, ids)
     schedule = build_schedule(tasks, args.seed)
 
     environments = {}
@@ -299,7 +398,7 @@ def main() -> int:
         environment = os.environ.copy()
         environment["CODEX_HOME"] = str(home.resolve())
         environments[variant] = environment
-        cli_versions[variant] = codex_version(environment)
+        cli_versions[variant] = codex_version(environment, args.codex_executable)
     if len(set(cli_versions.values())) != 1:
         raise ValueError("baseline and Skill variants must use the same Codex CLI version")
 
@@ -320,6 +419,8 @@ def main() -> int:
             / args.skill_name
             / "SKILL.md"
         ),
+        "codex_home_manifest_sha256": codex_home_manifest_sha256,
+        "held_out_isolation": args.held_out_isolation,
     }
     preparation_manifest = args.task_set.parent / "preparation-manifest.json"
     if preparation_manifest.is_file():
@@ -365,7 +466,7 @@ def main() -> int:
         capture = git_capture(item["workspace"])
         previous = completed_runs.get((item["id"], item["variant"]))
         if previous is not None:
-            if capture["status"] != previous.get("workspace_status"):
+            if not checkpoint_matches(capture, previous):
                 raise ValueError(
                     f"completed workspace changed since checkpoint: {item['workspace']}"
                 )
@@ -394,7 +495,7 @@ def main() -> int:
         before = git_capture(item["workspace"])
         print(f"[{index}/{len(schedule)}] {item['blind_id']}", file=sys.stderr, flush=True)
         command = [
-            "codex",
+            args.codex_executable,
             "-a",
             "never",
             "exec",
@@ -443,6 +544,15 @@ def main() -> int:
         after = git_capture(item["workspace"])
         diff_path = args.artifacts_dir / f"{item['blind_id']}.diff"
         diff_meta = write_log(diff_path, after["diff"], args.unsafe_raw_logs)
+        if after["head"] != before["head"]:
+            result["run_state"] = {
+                "status": "failed",
+                "completed_runs": len(runs),
+                "remaining_runs": len(schedule) - len(runs),
+                "detail": f"{item['blind_id']}: agent changed the workspace HEAD",
+            }
+            atomic_write_json(args.output, result)
+            raise RuntimeError(result["run_state"]["detail"])
         usage = parsed["usage"]
         run_tokens = (
             usage["input_tokens"] + usage["output_tokens"]
@@ -470,11 +580,15 @@ def main() -> int:
                 ),
                 "duration_seconds": duration,
                 "workspace_head_before": before["head"],
+                "workspace_head_after": after["head"],
                 "workspace_status_before_sha256": before["status_sha256"],
                 "workspace_status": after["status"],
+                "workspace_status_sha256": after["status_sha256"],
                 "diff_artifact": diff_path.name,
                 "diff_sha256": diff_meta["sha256"],
+                "diff_stored_sha256": diff_meta["stored_sha256"],
                 "stdout_sha256": stdout_meta["sha256"],
+                "stdout_stored_sha256": stdout_meta["stored_sha256"],
                 "log_redactions": stdout_meta["redactions"] + diff_meta["redactions"],
             }
         )

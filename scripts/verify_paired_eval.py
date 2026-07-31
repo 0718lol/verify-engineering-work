@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from run_paired_eval import git_capture
+from run_paired_eval import checkpoint_matches, git_capture, same_workspace_state
 from run_trigger_eval import atomic_write_json, file_sha256, write_log
 
 
@@ -130,7 +130,9 @@ def execute_check(
         "timed_out": timed_out,
         "duration_seconds": duration,
         "stdout_sha256": stdout_meta["sha256"],
+        "stdout_stored_sha256": stdout_meta["stored_sha256"],
         "stderr_sha256": stderr_meta["sha256"],
+        "stderr_stored_sha256": stderr_meta["stored_sha256"],
         "log_redactions": stdout_meta["redactions"] + stderr_meta["redactions"],
     }
 
@@ -165,7 +167,7 @@ def verify(
         task = tasks[task_id]
         workspace = task["workspaces"][variant]
         before = git_capture(workspace)
-        if before["status"] != run.get("workspace_status"):
+        if not checkpoint_matches(before, run):
             raise ValueError(f"{blind_id}: workspace differs from the run checkpoint")
 
         public = execute_check(
@@ -175,7 +177,7 @@ def verify(
             artifacts_dir / f"{blind_id}.public",
         )
         after_public = git_capture(workspace)
-        if after_public["status"] != before["status"]:
+        if not same_workspace_state(after_public, before):
             raise ValueError(f"{blind_id}: public verification modified the workspace")
         hidden = execute_check(
             [sys.executable, str(task["hidden_test"])],
@@ -184,7 +186,7 @@ def verify(
             artifacts_dir / f"{blind_id}.hidden",
         )
         after = git_capture(workspace)
-        if after["status"] != before["status"]:
+        if not same_workspace_state(after, before):
             raise ValueError(f"{blind_id}: verification modified the workspace")
         cases.append(
             {

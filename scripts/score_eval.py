@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import random
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +21,7 @@ CATEGORIES = {
     "scope_safety": 10,
     "reporting_integrity": 10,
 }
+MIN_PUBLISHABLE_PAIRS = 40
 OPTIONAL_NUMBERS = ("tokens", "duration_seconds", "human_interventions")
 REQUIRED_EXPERIMENT_FIELDS = (
     "skill_version",
@@ -33,8 +35,16 @@ REQUIRED_EXPERIMENT_FIELDS = (
     "runner_schema_version",
     "skill_body_sha256",
     "preparation_manifest_sha256",
+    "codex_home_manifest_sha256",
+    "held_out_isolation",
 )
 VALID_VARIANTS = ("baseline", "skill")
+HASH_FIELDS = (
+    "task_set_sha256",
+    "skill_body_sha256",
+    "preparation_manifest_sha256",
+    "codex_home_manifest_sha256",
+)
 
 
 class EvaluationError(ValueError):
@@ -196,6 +206,21 @@ def experiment_status(
         if field == "token_budget":
             if value not in (None, "") and (not is_number(value) or value <= 0):
                 invalid.append(field)
+        elif field == "held_out_isolation":
+            if value not in (None, "") and value != "evaluator-external":
+                invalid.append(field)
+        elif field in HASH_FIELDS:
+            if value not in (None, "") and (
+                not isinstance(value, str)
+                or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            ):
+                invalid.append(field)
+        elif field == "skill_commit":
+            if value not in (None, "") and (
+                not isinstance(value, str)
+                or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value) is None
+            ):
+                invalid.append(field)
         elif value not in (None, "") and (not isinstance(value, str) or not value.strip()):
             invalid.append(field)
     pair_count = len(pairs)
@@ -221,6 +246,7 @@ def experiment_status(
     return {
         "matched_pairs": pair_count,
         "minimum_pairs": minimum_pairs,
+        "publication_minimum_pairs": MIN_PUBLISHABLE_PAIRS,
         "sample_size_sufficient": pair_count >= minimum_pairs,
         "missing_experiment_metadata": missing,
         "invalid_experiment_metadata": invalid,
@@ -229,7 +255,7 @@ def experiment_status(
         "token_budget_violations": token_budget_violations,
         "missing_token_budget_status": missing_token_budget_status,
         "publication_ready": (
-            pair_count >= minimum_pairs
+            pair_count >= MIN_PUBLISHABLE_PAIRS
             and not missing
             and not invalid
             and missing_machine_results == 0
@@ -370,7 +396,7 @@ def self_test() -> None:
         "harness": "test-harness",
         "task_set_version": "test-set",
         "token_budget": 0,
-        "skill_commit": "abc123",
+        "skill_commit": "a" * 40,
     }
     metadata_result = summarize(
         {"experiment": invalid_metadata, "cases": pair}, minimum_pairs=1
@@ -390,7 +416,12 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", nargs="?", type=Path, help="Evaluation results JSON")
-    parser.add_argument("--minimum-pairs", type=int, default=40, help="Minimum publishable pair count")
+    parser.add_argument(
+        "--minimum-pairs",
+        type=int,
+        default=40,
+        help="Analysis sufficiency threshold; publication always requires at least 40 pairs",
+    )
     parser.add_argument("--self-test", action="store_true", help="Run built-in tests")
     args = parser.parse_args()
     try:

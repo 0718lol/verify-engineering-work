@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -39,13 +40,15 @@ class TriggerDetectionTests(unittest.TestCase):
     def test_installed_skill_directory_is_not_required_in_path(self) -> None:
         event = json.dumps(
             {
-                "type": "item.started",
+                "type": "item.completed",
                 "item": {
                     "type": "command_execution",
                     "command": (
                         "sed -n '1,200p' "
                         "/tmp/checkout/verify-engineering-work/SKILL.md"
                     ),
+                    "status": "completed",
+                    "exit_code": 0,
                 },
             }
         )
@@ -57,10 +60,12 @@ class TriggerDetectionTests(unittest.TestCase):
         snapshot = Path("/tmp/frozen-project-v1/SKILL.md")
         event = json.dumps(
             {
-                "type": "item.started",
+                "type": "item.completed",
                 "item": {
                     "type": "command_execution",
                     "command": f"sed -n '1,200p' {snapshot}",
+                    "status": "completed",
+                    "exit_code": 0,
                 },
             }
         )
@@ -72,6 +77,25 @@ class TriggerDetectionTests(unittest.TestCase):
         )
         self.assertIs(result["triggered"], True)
         self.assertEqual(result["detection_method"], "skill_body_read")
+
+    def test_path_mention_without_successful_read_is_not_a_trigger(self) -> None:
+        for command, exit_code in (
+            ("echo /tmp/verify-engineering-work/SKILL.md", 0),
+            ("sed -n 1,20p /tmp/verify-engineering-work/SKILL.md", 2),
+        ):
+            event = json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "command_execution",
+                        "command": command,
+                        "status": "completed" if exit_code == 0 else "failed",
+                        "exit_code": exit_code,
+                    },
+                }
+            )
+            result = runner.parse_events(event, "verify-engineering-work", True)
+            self.assertIsNone(result["triggered"])
 
     def test_verified_cli_detects_negative(self) -> None:
         result = runner.parse_events(self.not_triggered, "verify-engineering-work", True)
@@ -107,13 +131,19 @@ class TriggerDetectionTests(unittest.TestCase):
         source = (
             "Authorization: Bearer secret-value-123456\n"
             'api_key="1234567890abcdef"\n'
-            "github_pat_123456789012345678901234567890"
+            "github_pat_123456789012345678901234567890\n"
+            "https://example.test/cb?token=query-secret-123456\n"
+            "Cookie: session=cookie-secret-123456\n"
+            "Authorization: Basic ZmFrZTpmYWtl"
         )
         redacted, count = runner.redact_log(source)
-        self.assertEqual(count, 3)
+        self.assertEqual(count, 6)
         self.assertNotIn("secret-value", redacted)
         self.assertNotIn("1234567890abcdef", redacted)
         self.assertNotIn("github_pat_", redacted)
+        self.assertNotIn("query-secret", redacted)
+        self.assertNotIn("cookie-secret", redacted)
+        self.assertNotIn("ZmFrZTpmYWtl", redacted)
 
 
 class RunnerStateTests(unittest.TestCase):
@@ -181,7 +211,12 @@ class RunnerStateTests(unittest.TestCase):
             "triggered_fixture"
         ]
         event_stream = fixture_path.read_text(encoding="utf-8")
-        log_metadata = {"redactions": 0, "raw": False, "files": []}
+        log_metadata = {
+            "redactions": 0,
+            "raw": False,
+            "files": [],
+            "usage": {"input_tokens": 12000, "output_tokens": 500},
+        }
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -216,6 +251,9 @@ class RunnerStateTests(unittest.TestCase):
             ):
                 self.assertEqual(runner.main(), 0)
                 self.assertEqual(execute.call_count, 1)
+                command = execute.call_args.args[0]
+                self.assertEqual(command[0], "codex")
+                self.assertEqual(command[command.index("-m") + 1], "gpt-5.6-sol")
 
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(payload["run_state"]["status"], "completed")
@@ -229,8 +267,91 @@ class RunnerStateTests(unittest.TestCase):
                 self.assertEqual(runner.main(), 0)
                 execute.assert_not_called()
 
+    def test_retry_usage_includes_failed_attempts(self) -> None:
+        first = subprocess.CompletedProcess(
+            ["codex"],
+            1,
+            stdout=json.dumps(
+                {
+                    "type": "turn.completed",
+                    "usage": {"input_tokens": 10, "output_tokens": 2},
+                }
+            ),
+            stderr="failed",
+        )
+        second = subprocess.CompletedProcess(
+            ["codex"],
+            0,
+            stdout=json.dumps(
+                {
+                    "type": "turn.completed",
+                    "usage": {"input_tokens": 5, "output_tokens": 1},
+                }
+            ),
+            stderr="",
+        )
+        args = argparse.Namespace(
+            retries=1,
+            timeout=10,
+            retry_delay_seconds=0,
+            logs_dir=None,
+            unsafe_raw_logs=False,
+        )
+        with mock.patch.object(runner.subprocess, "run", side_effect=[first, second]):
+            _, attempts, metadata = runner.run_codex_case(
+                ["codex"], {}, "case-a", args
+            )
+        self.assertEqual(attempts, 2)
+        self.assertEqual(
+            metadata["usage"], {"input_tokens": 15, "output_tokens": 3}
+        )
+
 
 class ReclassificationTests(unittest.TestCase):
+    def test_redacted_retained_log_has_verifiable_stored_hash(self) -> None:
+        fixture = (
+            ROOT
+            / "tests"
+            / "fixtures"
+            / "codex-cli-0.144.0-alpha.4"
+            / "triggered.jsonl"
+        ).read_text(encoding="utf-8")
+        source = fixture + '\n{"token":"fake-secret-token-123456"}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory)
+            log_path = logs / "triggered.attempt-1.stdout.jsonl"
+            metadata = runner.write_log(log_path, source, False)
+            payload = {
+                "experiment": {
+                    "detection_schema_version": "2.3.0",
+                    "negative_detection_verified": True,
+                },
+                "observations": [
+                    {
+                        "id": "triggered",
+                        "triggered": True,
+                        "detection_status": "triggered",
+                        "detection_method": "skill_body_read",
+                        "attempts": 1,
+                        "log_redactions": metadata["redactions"],
+                        "log_sha256": [
+                            {
+                                "attempt": 1,
+                                "stdout_sha256": metadata["sha256"],
+                                "stdout_stored_sha256": metadata["stored_sha256"],
+                            }
+                        ],
+                    }
+                ],
+            }
+            result, _ = reclassifier.reclassify(
+                payload, logs, "verify-engineering-work"
+            )
+        self.assertGreater(metadata["redactions"], 0)
+        self.assertIs(
+            result["observations"][0]["log_integrity_verified"], True
+        )
+
     def test_retained_log_can_correct_a_false_negative(self) -> None:
         fixture = (
             ROOT

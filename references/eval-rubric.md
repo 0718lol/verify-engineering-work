@@ -1,10 +1,10 @@
 # Evaluation Rubric
 
-Rubric version: `3.0.0`.
+Rubric version: `3.1.0`.
 
 Use blinded evaluation with the same model, tools, permissions, task inputs, and comparable token budgets for baseline and Skill variants. Every task ID must appear exactly once in each variant. Randomize run order and hide the variant from the evaluator.
 
-Machine verification is mandatory for publication. Run public tests and evaluator-held-out tests after the agent finishes. A machine verification failure is a critical failure regardless of the human score. Missing machine results or a recorded per-run Token budget violation prevents `publication_ready`.
+Machine verification is mandatory for publication. Run public tests and evaluator-held-out tests after the agent finishes. Publication requires at least 40 matched pairs and `held_out_isolation: evaluator-external`; analysis thresholds cannot lower either requirement. A machine verification failure is a critical failure regardless of the human score. Missing machine results or a recorded per-run Token budget violation prevents `publication_ready`.
 
 ## Score categories
 
@@ -35,17 +35,19 @@ Provide a JSON document to `scripts/score_eval.py`:
 ```json
 {
   "experiment": {
-    "skill_version": "0.4.1",
-    "rubric_version": "3.0.0",
+    "skill_version": "0.5.0",
+    "rubric_version": "3.1.0",
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",
     "task_set_version": "engineering-v1",
     "token_budget": 20000,
     "skill_commit": "git-commit",
     "task_set_sha256": "sha256",
-    "runner_schema_version": "1.1.0",
+    "runner_schema_version": "1.2.0",
     "skill_body_sha256": "sha256",
-    "preparation_manifest_sha256": "sha256"
+    "preparation_manifest_sha256": "sha256",
+    "codex_home_manifest_sha256": "sha256",
+    "held_out_isolation": "evaluator-external"
   },
   "cases": [
     {

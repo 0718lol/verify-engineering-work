@@ -17,6 +17,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import prepare_paired_eval
 import calibrate_engineering_pilot
 import build_scored_eval
+import codex_docker_wrapper
+import create_controlled_codex_homes
 import run_paired_eval
 import score_eval
 import verify_paired_eval
@@ -70,6 +72,82 @@ class WorkflowBehaviorCaseTests(unittest.TestCase):
             {"authorization", "validation", "failure-loop", "reporting"},
         )
 
+
+class ControlledEnvironmentTests(unittest.TestCase):
+    def test_controlled_homes_only_differ_by_target_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "controlled"
+            manifest = create_controlled_codex_homes.create_environment(
+                output,
+                ROOT,
+                "verify-engineering-work",
+                create_controlled_codex_homes.DEFAULT_IMAGE,
+            )
+            baseline = output / manifest["baseline_home"]
+            skill = output / manifest["skill_home"]
+            self.assertFalse(
+                (baseline / "skills" / "verify-engineering-work").exists()
+            )
+            self.assertTrue(
+                (skill / "skills" / "verify-engineering-work" / "SKILL.md").is_file()
+            )
+            self.assertFalse(
+                (
+                    skill
+                    / "skills"
+                    / "verify-engineering-work"
+                    / "references"
+                    / "engineering-task-pilot-v1.json"
+                ).exists()
+            )
+            self.assertFalse((baseline / "auth.json").exists())
+            run_paired_eval.validate_skill_homes(
+                baseline, skill, "verify-engineering-work"
+            )
+
+    def test_docker_wrapper_mounts_only_runtime_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            workspace = root / "workspace"
+            auth = root / "auth.json"
+            home.mkdir()
+            workspace.mkdir()
+            auth.write_text("{}\n", encoding="utf-8")
+            command = codex_docker_wrapper.docker_command(
+                ["exec", "-C", str(workspace), "test prompt"],
+                {
+                    "CODEX_HOME": str(home),
+                    "CODEX_AUTH_FILE": str(auth),
+                    "CODEX_DOCKER_IMAGE": "test-image",
+                },
+            )
+            rendered = "\n".join(command)
+            self.assertIn(f"source={home.resolve()},target={home.resolve()}", rendered)
+            self.assertIn(
+                f"source={workspace.resolve()},target={workspace.resolve()}", rendered
+            )
+            self.assertIn(f"source={auth.resolve()}", rendered)
+            self.assertNotIn(str(ROOT / "evaluation"), rendered)
+            self.assertEqual(command[-5], "test-image")
+
+            local = codex_docker_wrapper.docker_command(
+                ["exec", "-C", str(workspace), "test prompt"],
+                {
+                    "CODEX_HOME": str(home),
+                    "CODEX_LOCAL_PROVIDER": "ollama",
+                    "CODEX_DOCKER_IMAGE": "test-image",
+                },
+            )
+            local_rendered = "\n".join(local)
+            self.assertIn(
+                "OLLAMA_PROXY_TARGET=host.docker.internal:11434", local_rendered
+            )
+            self.assertNotIn(str(auth.resolve()), local_rendered)
+            self.assertEqual(local[local.index("exec") + 1], "--oss")
+            self.assertEqual(
+                local[local.index("--local-provider") + 1], "ollama"
+            )
 
 class PreparationAndVerificationTests(unittest.TestCase):
     def create_spec(self, root: Path) -> Path:
@@ -172,6 +250,7 @@ class PreparationAndVerificationTests(unittest.TestCase):
             task_set = json.loads(task_set_path.read_text(encoding="utf-8"))
             task = task_set["tasks"][0]
             workspace = (output / task["workspaces"]["baseline"]).resolve()
+            capture = run_paired_eval.git_capture(workspace)
             run_output = root / "runs.json"
             run_output.write_text(
                 json.dumps(
@@ -181,9 +260,10 @@ class PreparationAndVerificationTests(unittest.TestCase):
                                 "id": "task-a",
                                 "variant": "baseline",
                                 "blind_id": "blind-a",
-                                "workspace_status": run_paired_eval.git_capture(
-                                    workspace
-                                )["status"],
+                                "workspace_head_after": capture["head"],
+                                "workspace_status": capture["status"],
+                                "workspace_status_sha256": capture["status_sha256"],
+                                "diff_sha256": capture["diff_sha256"],
                             }
                         ]
                     }
@@ -201,6 +281,45 @@ class PreparationAndVerificationTests(unittest.TestCase):
 
 
 class MachineGateTests(unittest.TestCase):
+    def test_publication_threshold_cannot_be_lowered_for_a_pilot(self) -> None:
+        scores = dict(score_eval.CATEGORIES)
+        pair = [
+            {
+                "id": "a",
+                "variant": variant,
+                "scores": scores,
+                "critical_failures": [],
+                "machine_verification_passed": True,
+                "public_verification_passed": True,
+                "held_out_verification_passed": True,
+                "token_budget_exceeded": False,
+            }
+            for variant in ("baseline", "skill")
+        ]
+        experiment = {
+            field: 100 if field == "token_budget" else "test-value"
+            for field in score_eval.REQUIRED_EXPERIMENT_FIELDS
+        }
+        for field in score_eval.HASH_FIELDS:
+            experiment[field] = "a" * 64
+        experiment["skill_commit"] = "b" * 40
+        experiment["held_out_isolation"] = "evaluator-external"
+        result = score_eval.summarize(
+            {"experiment": experiment, "cases": pair}, minimum_pairs=1
+        )
+        self.assertTrue(result["quality_gate"]["sample_size_sufficient"])
+        self.assertEqual(result["quality_gate"]["publication_minimum_pairs"], 40)
+        self.assertFalse(result["quality_gate"]["publication_ready"])
+        invalid_experiment = dict(experiment)
+        invalid_experiment["task_set_sha256"] = "not-a-hash"
+        invalid_result = score_eval.summarize(
+            {"experiment": invalid_experiment, "cases": pair}, minimum_pairs=1
+        )
+        self.assertIn(
+            "task_set_sha256",
+            invalid_result["quality_gate"]["invalid_experiment_metadata"],
+        )
+
     def test_publication_gate_requires_machine_results_and_budget_compliance(self) -> None:
         scores = dict(score_eval.CATEGORIES)
         pair = [

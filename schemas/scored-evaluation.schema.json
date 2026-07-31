@@ -5,7 +5,48 @@
   "type": "object",
   "required": ["experiment", "cases"],
   "properties": {
-    "experiment": {"type": "object"},
+    "experiment": {
+      "type": "object",
+      "required": [
+        "skill_version",
+        "rubric_version",
+        "model",
+        "harness",
+        "task_set_version",
+        "token_budget",
+        "skill_commit",
+        "task_set_sha256",
+        "runner_schema_version",
+        "skill_body_sha256",
+        "preparation_manifest_sha256",
+        "codex_home_manifest_sha256",
+        "held_out_isolation"
+      ],
+      "properties": {
+        "skill_version": {"type": "string", "minLength": 1},
+        "rubric_version": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "harness": {"type": "string", "minLength": 1},
+        "task_set_version": {"type": "string", "minLength": 1},
+        "token_budget": {"type": "number", "exclusiveMinimum": 0},
+        "skill_commit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "task_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "runner_schema_version": {"type": "string", "minLength": 1},
+        "skill_body_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "preparation_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "codex_home_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "held_out_isolation": {"const": "evaluator-external"}
+      }
+    },
     "cases": {
       "type": "array",
       "minItems": 2,

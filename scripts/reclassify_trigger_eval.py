@@ -29,6 +29,17 @@ def expected_stdout_hash(observation: dict, attempt: int) -> str | None:
     return None
 
 
+def expected_stored_stdout_hash(observation: dict, attempt: int) -> str | None:
+    hashes = observation.get("log_sha256")
+    if not isinstance(hashes, list):
+        return None
+    for entry in hashes:
+        if isinstance(entry, dict) and entry.get("attempt") == attempt:
+            value = entry.get("stdout_stored_sha256")
+            return value if isinstance(value, str) else None
+    return None
+
+
 def reclassify(
     payload: dict,
     logs_dir: Path,
@@ -85,9 +96,14 @@ def reclassify(
             "reasoning_output_tokens"
         )
 
+        actual_hash = hashlib.sha256(stdout.encode("utf-8")).hexdigest()
+        expected_stored_hash = expected_stored_stdout_hash(observation, attempt)
         expected_hash = expected_stdout_hash(observation, attempt)
-        if expected_hash is not None and observation.get("log_redactions") == 0:
-            actual_hash = hashlib.sha256(stdout.encode("utf-8")).hexdigest()
+        if expected_stored_hash is not None:
+            if actual_hash != expected_stored_hash:
+                raise ValueError(f"{case_id}: retained stdout hash does not match observation")
+            updated["log_integrity_verified"] = True
+        elif expected_hash is not None and observation.get("log_redactions") == 0:
             if actual_hash != expected_hash:
                 raise ValueError(f"{case_id}: retained stdout hash does not match observation")
             updated["log_integrity_verified"] = True

@@ -9,6 +9,7 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,16 +21,39 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_PATH = ROOT / "VERSION"
 DEFAULT_COMPATIBILITY_PATH = ROOT / "references" / "compatibility.json"
-DETECTION_SCHEMA_VERSION = "2.3.0"
+DETECTION_SCHEMA_VERSION = "2.4.0"
 SNAPSHOT_SCHEMA_VERSION = "1.0.0"
+USAGE_FIELDS = (
+    "input_tokens",
+    "cached_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+)
+SKILL_BODY_READERS = {
+    "awk",
+    "bat",
+    "cat",
+    "grep",
+    "head",
+    "less",
+    "more",
+    "nl",
+    "rg",
+    "sed",
+    "tail",
+}
 REDACTION_PATTERNS = (
     re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(
-        r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|password|secret)"
+        r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|password|secret|"
+        r"cookie|session(?:[_-]?id)?|set[_-]?cookie)"
         r"([\"']?\s*[:=]\s*[\"']?)([^\"'\s,}]{8,})"
     ),
-    re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?bearer\s+)[A-Za-z0-9._~+/-]+"),
+    re.compile(
+        r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?(?:bearer|basic)\s+)"
+        r"[A-Za-z0-9._~+/=-]+"
+    ),
 )
 
 
@@ -236,21 +260,29 @@ def event_reads_skill_body(
             str(path.resolve()).replace("\\", "/"),
         }
     )
-    containers = [event]
     item = event.get("item")
-    if isinstance(item, dict):
-        containers.append(item)
-    for container in containers:
-        for field in ("command", "arguments", "input", "path", "uri", "file", "filename"):
-            value = container.get(field)
-            if isinstance(value, (dict, list)):
-                value = json.dumps(value, ensure_ascii=False)
-            if isinstance(value, str):
-                normalized = value.replace("\\", "/")
-                if marker in normalized or any(
-                    resolved in normalized for resolved in resolved_markers
-                ):
-                    return True
+    if (
+        event.get("type") != "item.completed"
+        or not isinstance(item, dict)
+        or item.get("type") != "command_execution"
+        or item.get("status") not in (None, "completed")
+        or item.get("exit_code") != 0
+    ):
+        return False
+    command = item.get("command")
+    if not isinstance(command, str):
+        return False
+    try:
+        arguments = shlex.split(command)
+    except ValueError:
+        return False
+    if not arguments or Path(arguments[0]).name not in SKILL_BODY_READERS:
+        return False
+    normalized = command.replace("\\", "/")
+    if marker in normalized or any(
+        resolved in normalized for resolved in resolved_markers
+    ):
+        return True
     return False
 
 
@@ -345,14 +377,45 @@ def write_log(
     path.write_text(stored, encoding="utf-8")
     return {
         "sha256": original_hash,
+        "stored_sha256": hashlib.sha256(stored.encode("utf-8")).hexdigest(),
         "redactions": redactions,
         "raw": unsafe_raw_logs,
     }
 
 
-def codex_version(environment: dict[str, str]) -> str:
+def event_usage(stdout: str) -> dict:
+    usage = {}
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(event, dict)
+            and event.get("type") == "turn.completed"
+            and isinstance(event.get("usage"), dict)
+        ):
+            usage = event["usage"]
+    return {
+        field: value
+        for field in USAGE_FIELDS
+        if isinstance((value := usage.get(field)), (int, float))
+        and not isinstance(value, bool)
+        and value >= 0
+    }
+
+
+def add_usage(total: dict, current: dict) -> None:
+    for field, value in current.items():
+        total[field] = total.get(field, 0) + value
+
+
+def codex_version(
+    environment: dict[str, str],
+    executable: str = "codex",
+) -> str:
     completed = subprocess.run(
-        ["codex", "--version"],
+        [executable, "--version"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -492,6 +555,7 @@ def run_codex_case(
         "raw": args.unsafe_raw_logs,
         "attempts": 0,
         "files": [],
+        "usage": {},
     }
     for attempt in range(1, args.retries + 2):
         stdout = ""
@@ -515,6 +579,7 @@ def run_codex_case(
             last_error = f"timed out after {args.timeout}s"
 
         combined_log_metadata["attempts"] = attempt
+        add_usage(combined_log_metadata["usage"], event_usage(stdout))
         if args.logs_dir:
             stdout_metadata = write_log(
                 args.logs_dir / f"{case_id}.attempt-{attempt}.stdout.jsonl",
@@ -533,7 +598,9 @@ def run_codex_case(
                 {
                     "attempt": attempt,
                     "stdout_sha256": stdout_metadata["sha256"],
+                    "stdout_stored_sha256": stdout_metadata["stored_sha256"],
                     "stderr_sha256": stderr_metadata["sha256"],
+                    "stderr_stored_sha256": stderr_metadata["stored_sha256"],
                 }
             )
         if returncode == 0:
@@ -589,7 +656,7 @@ def self_test() -> None:
     redacted, count = redact_log(
         'Authorization: Bearer secret-value-123456 token="ghp_12345678901234567890"'
     )
-    assert "secret-value" not in redacted and "ghp_" not in redacted and count == 2
+    assert "secret-value" not in redacted and "ghp_" not in redacted and count >= 2
 
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "result.json"
@@ -609,6 +676,7 @@ def main() -> int:
     parser.add_argument("--skill-version")
     parser.add_argument("--skill-commit", default="")
     parser.add_argument("--model", default="gpt-5.6-sol")
+    parser.add_argument("--codex-executable", default="codex")
     parser.add_argument("--ids", help="Comma-separated benchmark IDs")
     parser.add_argument("--limit", type=int)
     parser.add_argument(
@@ -664,7 +732,7 @@ def main() -> int:
 
     environment = os.environ.copy()
     environment["CODEX_HOME"] = str(args.codex_home.resolve())
-    cli_version = codex_version(environment)
+    cli_version = codex_version(environment, args.codex_executable)
     compatibility = load_compatibility(args.compatibility)
     negative_observable = negative_detection_observable(cli_version, compatibility)
     skill_version = args.skill_version or project_version()
@@ -741,7 +809,7 @@ def main() -> int:
 
         print(f"[{index}/{len(cases)}] {case_id}", file=sys.stderr, flush=True)
         command = [
-            "codex",
+            args.codex_executable,
             "-a",
             "never",
             "exec",
@@ -750,6 +818,8 @@ def main() -> int:
             "--skip-git-repo-check",
             "-s",
             "read-only",
+            "-m",
+            args.model,
             "-C",
             str(args.workspace.resolve()),
             case["prompt"] + suffix,
@@ -784,10 +854,10 @@ def main() -> int:
                 "log_redactions": log_metadata["redactions"],
                 "raw_logs": log_metadata["raw"],
                 "log_sha256": log_metadata["files"],
-                "input_tokens": detection["usage"].get("input_tokens"),
-                "cached_input_tokens": detection["usage"].get("cached_input_tokens"),
-                "output_tokens": detection["usage"].get("output_tokens"),
-                "reasoning_output_tokens": detection["usage"].get(
+                "input_tokens": log_metadata["usage"].get("input_tokens"),
+                "cached_input_tokens": log_metadata["usage"].get("cached_input_tokens"),
+                "output_tokens": log_metadata["usage"].get("output_tokens"),
+                "reasoning_output_tokens": log_metadata["usage"].get(
                     "reasoning_output_tokens"
                 ),
             }

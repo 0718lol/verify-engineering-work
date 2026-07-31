@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -28,6 +29,12 @@ USAGE_FIELDS = (
     "cached_input_tokens",
     "output_tokens",
     "reasoning_output_tokens",
+)
+HASH_FIELDS = (
+    "benchmark_sha256",
+    "compatibility_sha256",
+    "skill_body_sha256",
+    "snapshot_manifest_sha256",
 )
 
 
@@ -232,6 +239,14 @@ def score(
             continue
         if field == "negative_detection_verified":
             if not isinstance(value, bool):
+                invalid_metadata.append(field)
+        elif field in HASH_FIELDS:
+            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                invalid_metadata.append(field)
+        elif field == "skill_commit":
+            if not isinstance(value, str) or re.fullmatch(
+                r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value
+            ) is None:
                 invalid_metadata.append(field)
         elif not isinstance(value, str) or not value.strip():
             invalid_metadata.append(field)
