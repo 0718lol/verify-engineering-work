@@ -1,12 +1,14 @@
 # Evidence Report
 
-Use this structure for medium- and high-risk tasks. Keep it internal during execution and summarize only material fields to the user unless a report artifact is requested.
+Use this structure for medium- and high-impact tasks. Keep it internal during execution and summarize only material fields to the user unless a report artifact is requested.
 
 ## Required fields
 
 ```markdown
-Risk: <low|medium|high> (<score>)
+Impact: <low|medium|high> (<score>)
 Factors: <scored factors>
+Execution: <local/reversible|external/state-changing>
+Authorization: <request covers local work|exact external authorization and target>
 
 Contract:
 - Requested behavior: <observable outcome>
@@ -30,7 +32,7 @@ Baseline failures:
 Limitations:
 - <unverified assumption, missing authority, or residual risk>
 
-Rollback: <required for high-risk state-changing work>
+Rollback: <required for external state-changing work; otherwise not applicable>
 ```
 
 ## Rules

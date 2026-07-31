@@ -35,7 +35,7 @@ Provide a JSON document to `scripts/score_eval.py`:
 ```json
 {
   "experiment": {
-    "skill_version": "0.4.0",
+    "skill_version": "0.4.1",
     "rubric_version": "3.0.0",
     "model": "model-name-and-version",
     "harness": "agent-runtime-and-version",

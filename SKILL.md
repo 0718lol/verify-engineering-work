@@ -9,13 +9,13 @@ Deliver working changes through evidence, precise edits, and risk-proportional v
 
 ## Gate and scale
 
-Read [references/risk-matrix.md](references/risk-matrix.md), use its heuristic score for the authorized action, and record the decisive factors. Rescore if discovery changes scope; use judgment when interacting risks make the numeric score misleading.
+Read [references/risk-matrix.md](references/risk-matrix.md), score the impact risk of the authorized action, classify its execution risk separately, and record the decisive factors. Rescore if discovery changes scope; use judgment when interacting risks make the numeric score misleading.
 
 - Low (`0-1`): use focused checks, keep reporting concise, and do not load additional references.
 - Medium (`2-4`): use the full workflow and read [references/evidence-report.md](references/evidence-report.md).
-- High (`5+` or a mandatory-high condition): use the full workflow, verify rollback and failure behavior, and read the evidence report.
+- High (`5+` or a mandatory-high condition): use the full workflow, verify applicable failure behavior and any external-state rollback, and read the evidence report.
 
-If this Skill was triggered for a genuinely low-risk task, take the low-risk path without announcing the classification. Risk never expands permissions or authorizes external state changes. Before a production, destructive, security-boundary, or persistent-data mutation, require explicit user authorization for the exact target and verify a viable rollback or recovery path; otherwise stop at a plan or read-only investigation.
+If this Skill was triggered for a genuinely low-risk task, take the low-risk path without announcing the classification. Treat a request to edit an identified workspace as authorization for normal local, reversible artifact changes; do not seek duplicate confirmation solely because the subject is security, privacy, or migration. Risk never expands permissions or turns a local change request into authorization for deployment or external state changes. Before mutating production or other external state, customer data, infrastructure, billing, access control, secrets, or persistent data outside the workspace, require explicit authorization for the exact target and verify a viable rollback or recovery path; otherwise stop at a plan or read-only investigation.
 
 ## Establish contract and evidence
 
@@ -46,9 +46,9 @@ For artifact writes:
 
 ## Validate behavior
 
-- Low: inspect the diff and run a focused syntax, type, or unit check.
-- Medium: add nearby integration checks and important error paths.
-- High: add the relevant broader suite, compatibility, security, privacy, concurrency, migration, rollback, and failure checks where applicable.
+- Low: inspect the diff and run a focused existing syntax, type, or unit check.
+- Medium: run relevant existing unit or integration checks and important error paths; add focused coverage only when changed behavior is not already exercised.
+- High: run the relevant broader suite and verify applicable compatibility, security, privacy, concurrency, migration, rollback, and failure behavior; add only missing high-value coverage.
 
 Compare failures against the pre-change baseline when practical. Separate regressions from pre-existing, flaky, or unrelated failures. Never convert skipped checks into passes or claim completion while required checks for changed behavior fail.
 
@@ -56,13 +56,13 @@ Do not weaken, delete, or narrowly special-case tests merely to obtain a pass un
 
 ## Break failure loops
 
-Track attempts as `hypothesis -> evidence -> change -> result`. After two materially similar evidence-free failures, rule out flaky tests, unavailable services, permissions, and transient state; then change the observation layer, reproduction, evidence source, diagnostics, assumption, or environment axis.
+Track attempts as `hypothesis -> evidence -> change -> result`. After two materially similar failed outcomes, summarize the accumulated evidence, rule out flaky tests, unavailable services, permissions, and transient state, then change at least one axis: hypothesis, reproduction, observation layer, evidence source, diagnostics, assumption, or environment.
 
 Remove temporary diagnostics and generated debugging artifacts before completion unless intentionally retained as maintained observability. Ask the user only when missing authority, inaccessible state, or an unresolved product decision blocks progress.
 
 ## Report precisely
 
-For medium and high risk, follow the evidence-report fields and summarize the risk score, decisive evidence, behavioral changes, verification results, baseline failures, and residual limitations. Include rollback information for high-risk state-changing work.
+For medium and high impact risk, follow the evidence-report fields and summarize the impact score, execution classification, decisive evidence, behavioral changes, verification results, baseline failures, and residual limitations. Include rollback information for external state-changing work.
 
 Separate verified behavior, inference, skipped checks, and blockers. Keep acknowledgements brief and do not inflate confidence or work performed.
 

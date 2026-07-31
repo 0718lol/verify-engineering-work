@@ -1,6 +1,6 @@
-# Engineering Risk Matrix v1.1
+# Engineering Risk Matrix v1.2
 
-This is a routing heuristic, not an objective safety score. Score risk before editing, revise it when discovery changes scope, and count each distinct factor once. Raise the classification when interacting risks make the sum understate blast radius or recovery difficulty.
+This is a routing heuristic, not an objective safety score. Score impact risk before editing, revise it when discovery changes scope, and count each distinct factor once. Raise the classification when interacting risks make the sum understate blast radius or recovery difficulty. Classify execution risk separately so a high-impact local patch is not confused with an external state change.
 
 ## Add 3 points
 
@@ -26,20 +26,26 @@ This is a routing heuristic, not an objective safety score. Score risk before ed
 - Continue after two materially similar failed attempts.
 - Fulfill an explicit request for production readiness or strong completion evidence.
 
-## Classify
+## Classify impact
 
 - `0-1`: Low risk.
 - `2-4`: Medium risk.
 - `5+`: High risk.
 
-Always classify as high risk when the next action would directly mutate production, perform an irreversible external operation, change authentication or authorization behavior, rotate or expose secrets, modify cryptography or privacy controls, or weaken another security boundary, regardless of total score.
+Always classify impact as high when incorrect behavior could mutate production, perform an irreversible operation, change authentication or authorization behavior, rotate or expose secrets, modify cryptography or privacy controls, or weaken another security boundary, regardless of total score.
 
-High-risk state changes require explicit user authorization for the exact target plus a viable rollback or recovery path. Without both, limit work to read-only investigation, a patch that is not applied externally, or an execution plan.
+## Classify execution
 
-Read-only investigation does not inherit the risk of a future mutation. Score the action currently authorized, then rescore before implementation or deployment.
+- `Local/reversible`: inspect or edit files, run tests, or prepare an undeployed patch in the identified workspace. The user's implementation request authorizes these normal local actions; do not ask again solely because impact is high.
+- `External/state-changing`: mutate production or another external system, customer data, infrastructure, billing, access control, secrets, or persistent data outside the workspace. Require explicit authorization for the exact target plus a viable rollback or recovery path.
+
+Never infer deployment or external-write permission from authorization to prepare a local patch. Without the required external authorization and recovery path, limit work to read-only investigation, local artifacts, or an execution plan.
+
+Read-only investigation does not inherit the execution risk of a future mutation. Rescore impact and execution before implementation, deployment, or any newly discovered external write.
 
 Record the decision as one compact line:
 
 ```text
-Risk: medium (4) - shared API +2, weak tests +1, unfamiliar dependency +1
+Impact: medium (4) - shared API +2, weak tests +1, unfamiliar dependency +1
+Execution: local/reversible - identified workspace only
 ```

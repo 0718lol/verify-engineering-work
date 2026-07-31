@@ -50,6 +50,27 @@ class PilotTaskSetTests(unittest.TestCase):
         )
 
 
+class WorkflowBehaviorCaseTests(unittest.TestCase):
+    def test_behavior_cases_cover_decision_boundaries(self) -> None:
+        payload = json.loads(
+            (
+                ROOT / "references" / "workflow-behavior-cases-v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        cases = payload["cases"]
+        self.assertEqual(payload["version"], "1.0.0")
+        self.assertEqual(len(cases), 12)
+        self.assertEqual(len({case["id"] for case in cases}), 12)
+        self.assertEqual(
+            {case["expected_execution"] for case in cases},
+            {"local/reversible", "external/state-changing"},
+        )
+        self.assertGreaterEqual(
+            {case["category"] for case in cases},
+            {"authorization", "validation", "failure-loop", "reporting"},
+        )
+
+
 class PreparationAndVerificationTests(unittest.TestCase):
     def create_spec(self, root: Path) -> Path:
         template = root / "template"

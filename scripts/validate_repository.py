@@ -218,6 +218,67 @@ def validate_engineering_assets() -> None:
         require(schema.get("type") == "object", f"{schema_path.name}: root must be an object")
 
 
+def validate_workflow_contract() -> None:
+    skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    risk_matrix = (ROOT / "references" / "risk-matrix.md").read_text(
+        encoding="utf-8"
+    )
+    require(
+        "do not seek duplicate confirmation" in skill,
+        "Skill must distinguish local authorization from external writes",
+    )
+    require(
+        "add focused coverage only when changed behavior is not already exercised" in skill,
+        "Skill must not force unnecessary test edits",
+    )
+    require(
+        "After two materially similar failed outcomes" in skill
+        and "change at least one axis" in skill,
+        "Skill must break repeated failure loops",
+    )
+    require(
+        "## Classify impact" in risk_matrix
+        and "## Classify execution" in risk_matrix,
+        "risk matrix must separate impact and execution",
+    )
+
+    behavior_path = ROOT / "references" / "workflow-behavior-cases-v1.json"
+    behavior = json.loads(behavior_path.read_text(encoding="utf-8"))
+    cases = behavior.get("cases")
+    require(
+        behavior.get("version") == "1.0.0",
+        "workflow behavior cases version must be 1.0.0",
+    )
+    require(
+        isinstance(cases, list) and len(cases) == 12,
+        "workflow behavior catalog must contain 12 cases",
+    )
+    require(
+        len({case.get("id") for case in cases}) == len(cases),
+        "workflow behavior case IDs must be unique",
+    )
+    require(
+        {case.get("expected_execution") for case in cases}
+        == {"local/reversible", "external/state-changing"},
+        "workflow behavior cases must cover both execution classes",
+    )
+    require(
+        {case.get("category") for case in cases}
+        >= {"authorization", "validation", "failure-loop", "reporting"},
+        "workflow behavior cases must cover the core decision boundaries",
+    )
+    require(
+        all(
+            isinstance(case.get("prompt"), str)
+            and case["prompt"].strip()
+            and isinstance(case.get("expected_decision"), str)
+            and case["expected_decision"].strip()
+            for case in cases
+        ),
+        "every workflow behavior case must define a prompt and expected decision",
+    )
+
+
 def validate_local_links() -> None:
     for document in (ROOT / "README.md", ROOT / "SKILL.md"):
         content = document.read_text(encoding="utf-8")
@@ -233,6 +294,7 @@ def main() -> None:
     validate_trigger_assets()
     validate_engineering_assets()
     validate_version_and_compatibility()
+    validate_workflow_contract()
     validate_local_links()
     print("repository validation passed")
 
