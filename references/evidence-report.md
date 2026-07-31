@@ -1,6 +1,6 @@
 # Evidence Report
 
-Use this structure for medium- and high-impact tasks. Keep it internal during execution and summarize only material fields to the user unless a report artifact is requested.
+Use this structure for full-workflow tasks: medium risk scored `4`, high risk, or a lower-scored task whose interacting risks require escalation. Keep it internal during execution and summarize only material fields to the user unless a report artifact is requested.
 
 ## Required fields
 

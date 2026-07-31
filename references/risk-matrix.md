@@ -43,7 +43,7 @@ Never infer deployment or external-write permission from authorization to prepar
 
 Read-only investigation does not inherit the execution risk of a future mutation. Rescore impact and execution before implementation, deployment, or any newly discovered external write.
 
-Record the decision as one compact line:
+Record the decision internally as one compact line. Expose it only when the classification changes authorization, scope, or verification depth:
 
 ```text
 Impact: medium (4) - shared API +2, weak tests +1, unfamiliar dependency +1

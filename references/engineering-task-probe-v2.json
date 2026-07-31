@@ -1,0 +1,50 @@
+{
+  "version": "engineering-probe-v2",
+  "description": "Four fresh paired engineering tasks for development-only follow-up evaluation.",
+  "tasks": [
+    {
+      "id": "allocation-01",
+      "category": "precision-and-invariants",
+      "prompt": "Allocate an integer quota across non-negative weights. Every result must be an integer, allocations must sum exactly to the requested total, zero weights must receive zero, and equal remainders must be resolved deterministically by input order. Reject negative totals, negative weights, empty weights, and all-zero weights. Add focused regression coverage.",
+      "template": "../fixtures/engineering-probe-v2/allocation",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests-probe-v2/allocation/test_hidden.py"
+      },
+      "calibration": {"public_passes": false, "held_out_passes": false}
+    },
+    {
+      "id": "profile-patch-01",
+      "category": "partial-update-contract",
+      "prompt": "Implement profile PATCH semantics without rebuilding records from a fixed allowlist. Missing fields remain unchanged, explicit null clears nullable fields, and existing and newly supplied extension fields are preserved. The id field is immutable: a patch that supplies a different id must raise ValueError. Do not mutate either input. Add focused regression coverage.",
+      "template": "../fixtures/engineering-probe-v2/profile-patch",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests-probe-v2/profile-patch/test_hidden.py"
+      },
+      "calibration": {"public_passes": true, "held_out_passes": false}
+    },
+    {
+      "id": "webhook-retry-01",
+      "category": "retryable-idempotency",
+      "prompt": "Webhook event IDs should be deduplicated only after their handler succeeds. Handler exceptions must propagate unchanged, failed deliveries must remain retryable, and a later successful delivery must cause subsequent duplicates to be skipped. Keep deduplication enabled and add regression coverage.",
+      "template": "../fixtures/engineering-probe-v2/webhook-retry",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests-probe-v2/webhook-retry/test_hidden.py"
+      },
+      "calibration": {"public_passes": false, "held_out_passes": false}
+    },
+    {
+      "id": "jsonl-contract-01",
+      "category": "structured-serialization",
+      "prompt": "Replace the legacy delimiter encoding with the JSON Lines contract documented in FORMAT.md. Preserve every record field and arbitrary string content, including Unicode, delimiters, and embedded newlines. Keep empty-input behavior and avoid mutating input records. Add focused regression coverage.",
+      "template": "../fixtures/engineering-probe-v2/jsonl-contract",
+      "verification": {
+        "public_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "hidden_test": "../evaluation/hidden-tests-probe-v2/jsonl-contract/test_hidden.py"
+      },
+      "calibration": {"public_passes": true, "held_out_passes": false}
+    }
+  ]
+}
