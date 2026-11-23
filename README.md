@@ -287,6 +287,12 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 python3 scripts/validate_repository.py
 ```
 
+## 相关技能
+
+- **[pr-test-receipt](https://github.com/0718lol/pr-test-receipt)** — 发 PR 前轻量验货工具：对比分支 diff、在脏工作区时用临时 `git worktree` 隔离验证已提交 `HEAD`、拦截 `0`-test 假绿，并生成可直接贴进 GitHub/GitLab 的测试回执。
+- **[skill-slim](https://github.com/0718lol/skill-slim)** — 跨 Claude Code / Codex / Gemini CLI / Cursor 审计常驻技能 token 成本并安全隔离冗余技能。
+- **[scout-before-build](https://github.com/0718lol/scout-before-build)** — 动工前自动调研 GitHub 同类项目与设计参考的探路技能。
+
 ## 许可证
 
 MIT，见 [LICENSE](LICENSE)。
