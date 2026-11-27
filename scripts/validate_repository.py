@@ -146,7 +146,16 @@ def validate_trigger_assets() -> None:
 def validate_version_and_compatibility() -> None:
     version = project_version()
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    require(f"当前版本：`{version}`" in readme, "README version must match VERSION")
+    require(
+        f"Current version: `{version}`" in readme or f"当前版本：`{version}`" in readme,
+        "README version must match VERSION",
+    )
+    readme_zh = ROOT / "README.zh-CN.md"
+    if readme_zh.exists():
+        require(
+            f"当前版本：`{version}`" in readme_zh.read_text(encoding="utf-8"),
+            "README.zh-CN.md version must match VERSION",
+        )
 
     compatibility = load_compatibility()
     require(
@@ -286,7 +295,11 @@ def validate_workflow_contract() -> None:
 
 
 def validate_local_links() -> None:
-    for document in (ROOT / "README.md", ROOT / "SKILL.md"):
+    docs = [ROOT / "README.md", ROOT / "SKILL.md"]
+    readme_zh = ROOT / "README.zh-CN.md"
+    if readme_zh.exists():
+        docs.append(readme_zh)
+    for document in docs:
         content = document.read_text(encoding="utf-8")
         for raw_target in LOCAL_LINK.findall(content):
             target = raw_target.strip().split("#", 1)[0]
