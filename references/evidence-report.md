@@ -38,8 +38,10 @@ Rollback: <required for external state-changing work; otherwise not applicable>
 ## Rules
 
 - Cite evidence that another engineer can reproduce.
-- Separate direct observation from inference.
-- Never convert a skipped check into a pass.
+- Distinguish deterministic or independent verification from self-checked reasoning; never present self-review as independent sign-off.
+- Separate direct observation from unverified assumptions or inference; never present an assumption as evidence.
+- Note any conflicts discovered between docs/examples and actual installed code or runtime output.
+- Never convert a skipped or blocked check into a pass, and state explicitly when a required fact is unknown or inaccessible.
 - Report failures caused by the change separately from baseline failures.
 - Redact secrets, tokens, cookies, credentials, personal data, and sensitive connection details.
 - Do not create an evidence-report file in the repository unless the user requests one.

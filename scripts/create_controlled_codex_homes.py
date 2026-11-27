@@ -20,10 +20,8 @@ SKILL_FILES = (
     "SKILL.md",
     "VERSION",
     "agents/openai.yaml",
-    "references/eval-rubric.md",
     "references/evidence-report.md",
     "references/risk-matrix.md",
-    "scripts/score_eval.py",
 )
 
 
